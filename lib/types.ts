@@ -49,7 +49,7 @@ export type AppState = {
   categories: Category[];
 };
 
-export type PersistenceBackend = "kv" | "file" | "memory";
+export type PersistenceBackend = "kv" | "neon" | "file" | "memory";
 
 export type StateResponse = {
   state: AppState;

@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { neon } from "@neondatabase/serverless";
 import { Redis } from "@upstash/redis";
 import {
   defaultState,
@@ -8,6 +9,7 @@ import {
 } from "@/lib/types";
 
 const KEY = "wed-preps:state";
+const ROW_ID = "shared";
 const FILE = path.join(process.cwd(), "data", "store.json");
 
 type GlobalStore = {
@@ -17,6 +19,27 @@ type GlobalStore = {
 const memory = globalThis as typeof globalThis & {
   __wedPrepsStore?: GlobalStore;
 };
+
+function getPostgresUrl() {
+  return (
+    process.env.POSTGRES_URL ||
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.NEON_DATABASE_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    ""
+  );
+}
+
+type SqlClient = {
+  query: (query: string, params?: unknown[]) => Promise<unknown>;
+};
+
+function getSql(): SqlClient | null {
+  const url = getPostgresUrl();
+  if (!url) return null;
+  return neon(url);
+}
 
 function getRedis() {
   const url =
@@ -41,10 +64,48 @@ async function writeFileState(state: AppState) {
   await fs.writeFile(FILE, JSON.stringify(state, null, 2), "utf8");
 }
 
+async function ensureNeonTable(sql: SqlClient) {
+  await sql.query(`
+    CREATE TABLE IF NOT EXISTS wed_preps_state (
+      id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
+async function readNeonState(sql: SqlClient): Promise<AppState | null> {
+  await ensureNeonTable(sql);
+  const rows = (await sql.query(
+    "SELECT data FROM wed_preps_state WHERE id = $1 LIMIT 1",
+    [ROW_ID]
+  )) as { data: AppState }[];
+  return rows[0]?.data ?? null;
+}
+
+async function writeNeonState(sql: SqlClient, state: AppState) {
+  await ensureNeonTable(sql);
+  await sql.query(
+    `INSERT INTO wed_preps_state (id, data, updated_at)
+     VALUES ($1, $2::jsonb, NOW())
+     ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+    [ROW_ID, JSON.stringify(state)]
+  );
+}
+
 export async function getState(): Promise<{
   state: AppState;
   backend: PersistenceBackend;
 }> {
+  const sql = getSql();
+  if (sql) {
+    const stored = await readNeonState(sql);
+    if (stored) return { state: stored, backend: "neon" };
+    const initial = defaultState();
+    await writeNeonState(sql, initial);
+    return { state: initial, backend: "neon" };
+  }
+
   const redis = getRedis();
   if (redis) {
     const stored = await redis.get<AppState>(KEY);
@@ -70,6 +131,12 @@ export async function getState(): Promise<{
 }
 
 export async function saveState(state: AppState): Promise<PersistenceBackend> {
+  const sql = getSql();
+  if (sql) {
+    await writeNeonState(sql, state);
+    return "neon";
+  }
+
   const redis = getRedis();
   if (redis) {
     await redis.set(KEY, state);

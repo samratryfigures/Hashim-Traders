@@ -327,7 +327,7 @@ export function PlannerApp() {
               />
             </div>
             <div className="flex items-center gap-2 rounded-xl border border-rose-100 bg-white px-3 py-2 text-xs text-muted-foreground">
-              {backend === "kv" ? (
+              {backend === "kv" || backend === "neon" ? (
                 <Cloud className="size-4 text-emerald-600" />
               ) : backend === "file" ? (
                 <HardDrive className="size-4 text-rose-700" />
@@ -341,7 +341,7 @@ export function PlannerApp() {
                     ? saveError
                     : savedAt
                       ? `Saved ${savedAt.toLocaleTimeString()}`
-                      : backend === "kv"
+                      : backend === "kv" || backend === "neon"
                         ? "Saved for everyone on this link"
                         : "Saved on this device"}
               </span>
