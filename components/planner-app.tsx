@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ClipboardList,
   Heart,
   LoaderCircle,
   MoreHorizontal,
@@ -12,6 +13,7 @@ import {
   CloudOff,
   Cloud,
   HardDrive,
+  Scale,
   Users,
 } from "lucide-react";
 import {
@@ -22,6 +24,7 @@ import {
   unassignedCount,
 } from "@/lib/assignees";
 import { itemCount, readLocalState, writeLocalState } from "@/lib/local-state";
+import { ComparisonBoard } from "@/components/comparison-board";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ItemFormDialog } from "@/components/item-form-dialog";
 import { StatusBadge } from "@/components/status-badge";
@@ -71,6 +74,7 @@ import {
   createId,
   emptyItem,
   ITEM_STATUSES,
+  normalizeState,
   type AppState,
   type ItemStatus,
   type PersistenceBackend,
@@ -78,9 +82,12 @@ import {
   type StateResponse,
 } from "@/lib/types";
 
+type AppView = "board" | "compare";
+
 type PendingDelete =
   | { type: "category"; id: string; name: string }
-  | { type: "item"; categoryId: string; itemId: string; name: string };
+  | { type: "item"; categoryId: string; itemId: string; name: string }
+  | { type: "comparison"; id: string; name: string };
 
 export function PlannerApp() {
   const [state, setState] = useState<AppState | null>(null);
@@ -104,6 +111,7 @@ export function PlannerApp() {
   );
   const [openCategories, setOpenCategories] = useState<string[]>([]);
   const [personFilter, setPersonFilter] = useState(PERSON_ALL);
+  const [view, setView] = useState<AppView>("board");
   const skipSave = useRef(true);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -151,7 +159,7 @@ export function PlannerApp() {
           !!local &&
           itemCount(local) > 0 &&
           (payload.backend === "memory" || serverEmpty);
-        const chosen = useLocal && local ? local : payload.state;
+        const chosen = normalizeState(useLocal && local ? local : payload.state);
         skipSave.current = !useLocal;
         setState(chosen);
         setBackend(payload.backend);
@@ -362,6 +370,48 @@ export function PlannerApp() {
       </header>
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setView("board")}
+            className={
+              view === "board"
+                ? "inline-flex items-center gap-2 rounded-full bg-rose-700 px-4 py-2 text-sm text-white"
+                : "inline-flex items-center gap-2 rounded-full border border-rose-100 bg-white px-4 py-2 text-sm text-rose-950 hover:bg-rose-50"
+            }
+          >
+            <ClipboardList className="size-4" />
+            Planning board
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("compare")}
+            className={
+              view === "compare"
+                ? "inline-flex items-center gap-2 rounded-full bg-rose-700 px-4 py-2 text-sm text-white"
+                : "inline-flex items-center gap-2 rounded-full border border-rose-100 bg-white px-4 py-2 text-sm text-rose-950 hover:bg-rose-50"
+            }
+          >
+            <Scale className="size-4" />
+            Price comparison
+          </button>
+        </div>
+
+        {view === "compare" ? (
+          <ComparisonBoard
+            items={state.comparisons}
+            rate={state.exchangeRate}
+            onChange={(comparisons) => setState({ ...state, comparisons })}
+            onDelete={(item) =>
+              setPendingDelete({
+                type: "comparison",
+                id: item.id,
+                name: item.name || "this comparison",
+              })
+            }
+          />
+        ) : (
+          <>
         <section className="rounded-2xl border border-rose-100 bg-white/80 p-3 sm:p-4">
           <div className="mb-3 flex items-center gap-2 text-sm font-medium text-rose-950">
             <Users className="size-4 text-rose-700" />
@@ -879,6 +929,8 @@ export function PlannerApp() {
             );
           })}
         </div>
+          </>
+        )}
       </main>
 
       <ItemFormDialog
@@ -977,13 +1029,23 @@ export function PlannerApp() {
         description={
           pendingDelete?.type === "category"
             ? "This removes the category and every item inside it for everyone sharing this link."
-            : "This removes the item from the shared wedding list."
+            : pendingDelete?.type === "comparison"
+              ? "This removes the row from the US vs Pakistan price comparison."
+              : "This removes the item from the shared wedding list."
         }
         onOpenChange={(open) => !open && setPendingDelete(null)}
         onConfirm={() => {
           if (!pendingDelete) return;
           setState((current) => {
             if (!current) return current;
+            if (pendingDelete.type === "comparison") {
+              return {
+                ...current,
+                comparisons: current.comparisons.filter(
+                  (item) => item.id !== pendingDelete.id
+                ),
+              };
+            }
             if (pendingDelete.type === "category") {
               return {
                 ...current,

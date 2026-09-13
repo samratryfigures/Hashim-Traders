@@ -8,6 +8,7 @@ Shared wedding planning board for shopping, outfits, and family preps. One link,
 - Organize work into default categories (Furniture, Dresses, Accessories, Makeup, Shoes, General Preps, Personal Things, Siblings Preps, Parents Preps) plus custom ones
 - Assign items, mark status (Pending / In-Process / Complete), record where things were bought, and attach photos
 - Filter the board by **who is doing** the work (Everyone, Unassigned, or a person)
+- Compare items on the **Price comparison** tab: name, quantity, US price (USD), PAK price (PKR), and a where-to-buy suggestion
 - Use a table on laptops and a card view on phones
 
 ## Run locally

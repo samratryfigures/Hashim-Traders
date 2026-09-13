@@ -5,6 +5,7 @@ import {
   isItemStatus,
   type AppState,
   type Category,
+  type ComparisonItem,
   type PrepItem,
 } from "@/lib/types";
 
@@ -56,6 +57,22 @@ function sanitizeCategory(raw: unknown): Category | null {
   return { id, name: name.slice(0, 80), items };
 }
 
+function sanitizeComparison(raw: unknown): ComparisonItem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const item = raw as Record<string, unknown>;
+  const id = typeof item.id === "string" ? item.id : null;
+  if (!id) return null;
+  const quantity = asNumber(item.quantity);
+  return {
+    id,
+    name: typeof item.name === "string" ? item.name.slice(0, 200) : "",
+    quantity:
+      quantity === null || quantity < 1 ? 1 : Math.min(9999, Math.round(quantity)),
+    usUsd: asNumber(item.usUsd),
+    pakPkr: asNumber(item.pakPkr),
+  };
+}
+
 function sanitizeState(raw: unknown): AppState | null {
   if (!raw || typeof raw !== "object") return null;
   const state = raw as Record<string, unknown>;
@@ -71,10 +88,16 @@ function sanitizeState(raw: unknown): AppState | null {
         .filter((category): category is Category => !!category)
     : [];
   if (categories.length === 0) return null;
+  const comparisons = Array.isArray(state.comparisons)
+    ? state.comparisons
+        .map(sanitizeComparison)
+        .filter((item): item is ComparisonItem => !!item)
+    : [];
   return {
     exchangeRate: Math.max(1, exchangeRate),
     locations: locations.length ? Array.from(new Set(locations)) : ["PAK"],
     categories,
+    comparisons,
   };
 }
 

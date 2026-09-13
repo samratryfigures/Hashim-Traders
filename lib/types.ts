@@ -47,6 +47,15 @@ export type AppState = {
   exchangeRate: number;
   locations: string[];
   categories: Category[];
+  comparisons: ComparisonItem[];
+};
+
+export type ComparisonItem = {
+  id: string;
+  name: string;
+  quantity: number;
+  usUsd: number | null;
+  pakPkr: number | null;
 };
 
 export type PersistenceBackend = "kv" | "neon" | "file" | "memory";
@@ -78,6 +87,16 @@ export function emptyItem(): PrepItem {
   };
 }
 
+export function emptyComparison(): ComparisonItem {
+  return {
+    id: createId(),
+    name: "",
+    quantity: 1,
+    usUsd: null,
+    pakPkr: null,
+  };
+}
+
 export function defaultState(): AppState {
   return {
     exchangeRate: DEFAULT_EXCHANGE_RATE,
@@ -87,6 +106,14 @@ export function defaultState(): AppState {
       name,
       items: [],
     })),
+    comparisons: [],
+  };
+}
+
+export function normalizeState(state: AppState): AppState {
+  return {
+    ...state,
+    comparisons: Array.isArray(state.comparisons) ? state.comparisons : [],
   };
 }
 

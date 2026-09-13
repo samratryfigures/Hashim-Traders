@@ -4,6 +4,7 @@ import { neon } from "@neondatabase/serverless";
 import { Redis } from "@upstash/redis";
 import {
   defaultState,
+  normalizeState,
   type AppState,
   type PersistenceBackend,
 } from "@/lib/types";
@@ -100,7 +101,7 @@ export async function getState(): Promise<{
   const sql = getSql();
   if (sql) {
     const stored = await readNeonState(sql);
-    if (stored) return { state: stored, backend: "neon" };
+    if (stored) return { state: normalizeState(stored), backend: "neon" };
     const initial = defaultState();
     await writeNeonState(sql, initial);
     return { state: initial, backend: "neon" };
@@ -109,7 +110,7 @@ export async function getState(): Promise<{
   const redis = getRedis();
   if (redis) {
     const stored = await redis.get<AppState>(KEY);
-    if (stored) return { state: stored, backend: "kv" };
+    if (stored) return { state: normalizeState(stored), backend: "kv" };
     const initial = defaultState();
     await redis.set(KEY, initial);
     return { state: initial, backend: "kv" };
@@ -117,7 +118,7 @@ export async function getState(): Promise<{
 
   if (!process.env.VERCEL) {
     const fromFile = await readFileState();
-    if (fromFile) return { state: fromFile, backend: "file" };
+    if (fromFile) return { state: normalizeState(fromFile), backend: "file" };
     const initial = defaultState();
     await writeFileState(initial);
     return { state: initial, backend: "file" };
@@ -127,7 +128,7 @@ export async function getState(): Promise<{
   if (!memory.__wedPrepsStore.state) {
     memory.__wedPrepsStore.state = defaultState();
   }
-  return { state: memory.__wedPrepsStore.state, backend: "memory" };
+  return { state: normalizeState(memory.__wedPrepsStore.state), backend: "memory" };
 }
 
 export async function saveState(state: AppState): Promise<PersistenceBackend> {

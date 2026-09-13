@@ -15,7 +15,10 @@ export function readLocalState(): AppState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AppState;
     if (!parsed?.categories?.length) return null;
-    return parsed;
+    return {
+      ...parsed,
+      comparisons: Array.isArray(parsed.comparisons) ? parsed.comparisons : [],
+    };
   } catch {
     return null;
   }
