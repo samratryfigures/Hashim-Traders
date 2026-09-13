@@ -11,12 +11,11 @@ export function parseMoney(value: string): number | null {
 }
 
 export function formatPkr(value: number | null | undefined) {
-  if (value === null || value === undefined) return "₨ 0";
-  return new Intl.NumberFormat("en-PK", {
-    style: "currency",
-    currency: "PKR",
+  const amount = Math.round(value ?? 0);
+  const formatted = new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 0,
-  }).format(value);
+  }).format(amount);
+  return `PKR ${formatted}`;
 }
 
 export function formatUsd(value: number | null | undefined) {

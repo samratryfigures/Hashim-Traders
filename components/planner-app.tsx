@@ -12,7 +12,16 @@ import {
   CloudOff,
   Cloud,
   HardDrive,
+  Users,
 } from "lucide-react";
+import {
+  PERSON_ALL,
+  PERSON_UNASSIGNED,
+  itemMatchesPerson,
+  uniqueAssignees,
+  unassignedCount,
+} from "@/lib/assignees";
+import { itemCount, readLocalState, writeLocalState } from "@/lib/local-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ItemFormDialog } from "@/components/item-form-dialog";
 import { MoneyInput } from "@/components/money-input";
@@ -93,10 +102,12 @@ export function PlannerApp() {
     null
   );
   const [openCategories, setOpenCategories] = useState<string[]>([]);
+  const [personFilter, setPersonFilter] = useState(PERSON_ALL);
   const skipSave = useRef(true);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const persist = useCallback(async (next: AppState) => {
+    writeLocalState(next);
     setSaving(true);
     setSaveError("");
     try {
@@ -114,8 +125,11 @@ export function PlannerApp() {
       setBackend(payload.backend);
       setSavedAt(new Date());
     } catch (error) {
+      setSavedAt(new Date());
       setSaveError(
-        error instanceof Error ? error.message : "Could not save your changes."
+        error instanceof Error
+          ? error.message
+          : "Saved on this device, but could not sync."
       );
     } finally {
       setSaving(false);
@@ -130,9 +144,18 @@ export function PlannerApp() {
         if (!response.ok) throw new Error("Could not load planner data.");
         const payload = (await response.json()) as StateResponse;
         if (cancelled) return;
-        setState(payload.state);
+        const local = readLocalState();
+        const serverEmpty = itemCount(payload.state) === 0;
+        const useLocal =
+          !!local &&
+          itemCount(local) > 0 &&
+          (payload.backend === "memory" || serverEmpty);
+        const chosen = useLocal && local ? local : payload.state;
+        skipSave.current = !useLocal;
+        setState(chosen);
         setBackend(payload.backend);
-        setOpenCategories(payload.state.categories.map((category) => category.id));
+        setOpenCategories(chosen.categories.map((category) => category.id));
+        writeLocalState(chosen);
       } catch (error) {
         if (!cancelled) {
           setLoadError(
@@ -163,23 +186,36 @@ export function PlannerApp() {
     };
   }, [state, persist]);
 
+  const people = useMemo(
+    () => (state ? uniqueAssignees(state) : []),
+    [state]
+  );
+  const noneAssigned = state ? unassignedCount(state) : 0;
+  const selectedPerson =
+    personFilter === PERSON_ALL
+      ? "Everyone"
+      : personFilter === PERSON_UNASSIGNED
+        ? "Unassigned"
+        : (people.find((person) => person.key === personFilter)?.name ??
+          "Everyone");
+
+  const visibleCategories = useMemo(() => {
+    if (!state) return [];
+    return state.categories.map((category) => ({
+      ...category,
+      items: category.items.filter((item) =>
+        itemMatchesPerson(item, personFilter)
+      ),
+    }));
+  }, [state, personFilter]);
+
   const totals = useMemo(() => {
-    if (!state) {
-      return {
-        expected: 0,
-        actual: 0,
-        remaining: 0,
-        complete: 0,
-        pending: 0,
-        totalItems: 0,
-      };
-    }
     let expected = 0;
     let actual = 0;
     let complete = 0;
     let pending = 0;
     let totalItems = 0;
-    for (const category of state.categories) {
+    for (const category of visibleCategories) {
       for (const item of category.items) {
         totalItems += 1;
         expected += item.expectedPkr ?? 0;
@@ -196,7 +232,7 @@ export function PlannerApp() {
       pending,
       totalItems,
     };
-  }, [state]);
+  }, [visibleCategories]);
 
   function updateItem(
     categoryId: string,
@@ -307,9 +343,7 @@ export function PlannerApp() {
                       ? `Saved ${savedAt.toLocaleTimeString()}`
                       : backend === "kv"
                         ? "Saved for everyone on this link"
-                        : backend === "file"
-                          ? "Saved on this computer"
-                          : "Temporary until KV is connected"}
+                        : "Saved on this device"}
               </span>
             </div>
           </div>
@@ -317,24 +351,54 @@ export function PlannerApp() {
       </header>
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
-        {backend === "memory" ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            This Vercel deployment has no KV store yet, so data may reset. Add
-            Upstash / Vercel KV env vars (`KV_REST_API_URL` and
-            `KV_REST_API_TOKEN`) so family members share one live list.
+        <section className="rounded-2xl border border-rose-100 bg-white/80 p-3 sm:p-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-rose-950">
+            <Users className="size-4 text-rose-700" />
+            Filter by who is doing
           </div>
-        ) : null}
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            <PersonTab
+              active={personFilter === PERSON_ALL}
+              onClick={() => setPersonFilter(PERSON_ALL)}
+              label="Everyone"
+              count={itemCount(state)}
+            />
+            <PersonTab
+              active={personFilter === PERSON_UNASSIGNED}
+              onClick={() => setPersonFilter(PERSON_UNASSIGNED)}
+              label="Unassigned"
+              count={noneAssigned}
+            />
+            {people.map((person) => (
+              <PersonTab
+                key={person.key}
+                active={personFilter === person.key}
+                onClick={() => setPersonFilter(person.key)}
+                label={person.name}
+                count={person.count}
+              />
+            ))}
+          </div>
+        </section>
 
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SummaryCard
             label="Total expected cost"
             value={formatPkr(totals.expected)}
-            hint="Sum of expected PKR across all items"
+            hint={
+              personFilter === PERSON_ALL
+                ? "Sum of expected PKR across all items"
+                : `Expected PKR for ${selectedPerson}`
+            }
           />
           <SummaryCard
             label="Total actual spent"
             value={formatPkr(totals.actual)}
-            hint="Sum of actual bought prices"
+            hint={
+              personFilter === PERSON_ALL
+                ? "Sum of actual bought prices"
+                : `Actual spend for ${selectedPerson}`
+            }
           />
           <SummaryCard
             label={totals.remaining >= 0 ? "Remaining budget" : "Over budget"}
@@ -361,7 +425,7 @@ export function PlannerApp() {
                     : 0
                 }
               />
-              {state.categories.map((category) => {
+              {visibleCategories.map((category) => {
                 const total = category.items.length;
                 const done = category.items.filter(
                   (item) => item.status === "Complete"
@@ -429,7 +493,7 @@ export function PlannerApp() {
         </section>
 
         <div className="space-y-4">
-          {state.categories.map((category) => {
+          {visibleCategories.map((category) => {
             const done = category.items.filter(
               (item) => item.status === "Complete"
             ).length;
@@ -460,18 +524,26 @@ export function PlannerApp() {
                     <p className="text-sm text-muted-foreground">
                       {done}/{category.items.length} complete · expected{" "}
                       {formatPkr(expected)}
+                      {personFilter !== PERSON_ALL ? ` · ${selectedPerson}` : ""}
                     </p>
                   </button>
                   <div className="flex items-center gap-1">
                     <Button
                       size="sm"
-                      onClick={() =>
+                      onClick={() => {
+                        const item = emptyItem();
+                        if (
+                          personFilter !== PERSON_ALL &&
+                          personFilter !== PERSON_UNASSIGNED
+                        ) {
+                          item.assignedTo = selectedPerson;
+                        }
                         setItemDialog({
                           categoryId: category.id,
-                          item: emptyItem(),
+                          item,
                           title: `Add item to ${category.name}`,
-                        })
-                      }
+                        });
+                      }}
                     >
                       <Plus />
                       Add item
@@ -512,8 +584,9 @@ export function PlannerApp() {
                 <div className={isOpen ? "block" : "hidden md:block"}>
                   {category.items.length === 0 ? (
                     <p className="px-4 pb-5 text-sm text-muted-foreground">
-                      No items yet. Add the first {category.name.toLowerCase()}{" "}
-                      prep for the family list.
+                      {personFilter === PERSON_ALL
+                        ? `No items yet. Add the first ${category.name.toLowerCase()} prep for the family list.`
+                        : `No ${category.name.toLowerCase()} items for ${selectedPerson}.`}
                     </p>
                   ) : (
                     <>
@@ -925,6 +998,35 @@ export function PlannerApp() {
   );
 }
 
+function PersonTab({
+  active,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        active
+          ? "shrink-0 rounded-full bg-rose-700 px-3 py-1.5 text-sm text-white"
+          : "shrink-0 rounded-full border border-rose-100 bg-white px-3 py-1.5 text-sm text-rose-950 hover:bg-rose-50"
+      }
+    >
+      {label}
+      <span className={active ? "ml-1.5 text-white/80" : "ml-1.5 text-muted-foreground"}>
+        {count}
+      </span>
+    </button>
+  );
+}
+
 function SummaryCard({
   label,
   value,
@@ -940,7 +1042,9 @@ function SummaryCard({
     <Card className={tone === "over" ? "bg-rose-50/90" : "bg-white/90"}>
       <CardHeader>
         <CardDescription>{label}</CardDescription>
-        <CardTitle className="font-serif text-3xl">{value}</CardTitle>
+        <CardTitle className="font-sans text-3xl font-semibold tracking-tight tabular-nums">
+          {value}
+        </CardTitle>
       </CardHeader>
       <CardContent className="text-xs text-muted-foreground">{hint}</CardContent>
     </Card>

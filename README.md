@@ -7,6 +7,7 @@ Shared wedding planning board for shopping, outfits, and family preps. One link,
 - Track expected vs actual spend in PKR (USD converts with a static rate, default **1 USD = 278 PKR**)
 - Organize work into default categories (Furniture, Dresses, Accessories, Makeup, Shoes, General Preps, Personal Things, Siblings Preps, Parents Preps) plus custom ones
 - Assign items, mark status (Pending / In-Process / Complete), record where things were bought, and attach photos
+- Filter the board by **who is doing** the work (Everyone, Unassigned, or a person)
 - Use a table on laptops and a card view on phones
 
 ## Run locally
@@ -16,11 +17,11 @@ npm install
 npm run dev -- --port 43127
 ```
 
-Open [http://localhost:43127](http://localhost:43127). Local data is saved to `data/store.json`.
+Open [http://localhost:43127](http://localhost:43127). Local data is saved to `data/store.json` and also in the browser.
 
-## Deploy on Vercel (so the family shares one live list)
+## Deploy on Vercel
 
-Without KV, a Vercel deploy cannot keep a single shared list (serverless storage is temporary). Connect Vercel KV / Upstash Redis:
+On Vercel, the board is saved in the browser so refresh keeps your list. To share **one live list across phones**, add Vercel KV / Upstash Redis:
 
 1. In Vercel: **Storage → Create Database → KV / Upstash Redis**
 2. Link it to this project so these env vars exist:
