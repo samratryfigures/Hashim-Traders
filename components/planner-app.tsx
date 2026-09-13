@@ -440,19 +440,20 @@ export function PlannerApp() {
             const isOpen = openCategories.includes(category.id);
             return (
               <Card key={category.id} className="overflow-hidden bg-white/90">
-                <button
-                  type="button"
-                  className="flex w-full items-start justify-between gap-3 px-4 py-4 text-left md:cursor-default"
-                  onClick={() => {
-                    if (window.matchMedia("(min-width: 768px)").matches) return;
-                    setOpenCategories((open) =>
-                      open.includes(category.id)
-                        ? open.filter((id) => id !== category.id)
-                        : [...open, category.id]
-                    );
-                  }}
-                >
-                  <div>
+                <div className="flex w-full items-start justify-between gap-3 px-4 py-4">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left md:pointer-events-none"
+                    aria-expanded={isOpen}
+                    onClick={() => {
+                      if (window.matchMedia("(min-width: 768px)").matches) return;
+                      setOpenCategories((open) =>
+                        open.includes(category.id)
+                          ? open.filter((id) => id !== category.id)
+                          : [...open, category.id]
+                      );
+                    }}
+                  >
                     <h2 className="font-serif text-2xl text-rose-950">
                       {category.name}
                     </h2>
@@ -460,11 +461,8 @@ export function PlannerApp() {
                       {done}/{category.items.length} complete · expected{" "}
                       {formatPkr(expected)}
                     </p>
-                  </div>
-                  <div
-                    className="flex items-center gap-1"
-                    onClick={(event) => event.stopPropagation()}
-                  >
+                  </button>
+                  <div className="flex items-center gap-1">
                     <Button
                       size="sm"
                       onClick={() =>
@@ -509,7 +507,7 @@ export function PlannerApp() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                </button>
+                </div>
 
                 <div className={isOpen ? "block" : "hidden md:block"}>
                   {category.items.length === 0 ? (
