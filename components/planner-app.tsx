@@ -24,7 +24,6 @@ import {
 import { itemCount, readLocalState, writeLocalState } from "@/lib/local-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ItemFormDialog } from "@/components/item-form-dialog";
-import { MoneyInput } from "@/components/money-input";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -64,8 +63,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PriceBlank } from "@/components/price-blank";
 import { fileToCompressedDataUrl } from "@/lib/image";
-import { formatPkr, usdToPkr } from "@/lib/money";
+import { formatPkr, formatUsd, usdToPkr } from "@/lib/money";
+import { convertUsPrices, isUsLocation, withLocationPrices } from "@/lib/pricing";
 import {
   createId,
   emptyItem,
@@ -311,7 +312,7 @@ export function PlannerApp() {
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
             <div className="grid gap-1.5">
-              <Label htmlFor="fx-rate">Static exchange rate (1 USD = PKR)</Label>
+              <Label htmlFor="fx-rate">US buy rate (1 USD = PKR)</Label>
               <Input
                 id="fx-rate"
                 className="w-40 bg-white"
@@ -319,9 +320,19 @@ export function PlannerApp() {
                 value={String(state.exchangeRate)}
                 onChange={(event) => {
                   const next = Number(event.target.value);
+                  const rate =
+                    Number.isFinite(next) && next > 0
+                      ? next
+                      : state.exchangeRate;
                   setState({
                     ...state,
-                    exchangeRate: Number.isFinite(next) && next > 0 ? next : state.exchangeRate,
+                    exchangeRate: rate,
+                    categories: state.categories.map((category) => ({
+                      ...category,
+                      items: category.items.map((item) =>
+                        convertUsPrices(item, rate)
+                      ),
+                    })),
                   });
                 }}
               />
@@ -597,11 +608,9 @@ export function PlannerApp() {
                               <TableHead>Item name</TableHead>
                               <TableHead>Status</TableHead>
                               <TableHead>Assigned to</TableHead>
-                              <TableHead>Expected USD</TableHead>
-                              <TableHead>Expected PKR</TableHead>
                               <TableHead>Bought from</TableHead>
-                              <TableHead>Actual USD</TableHead>
-                              <TableHead>Actual PKR</TableHead>
+                              <TableHead>Expected</TableHead>
+                              <TableHead>Actual</TableHead>
                               <TableHead>Picture</TableHead>
                               <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
@@ -655,11 +664,31 @@ export function PlannerApp() {
                                     }
                                   />
                                 </TableCell>
-                                <TableCell className="min-w-28">
-                                  <MoneyInput
-                                    prefix="$"
-                                    value={item.expectedUsd}
-                                    onValueChange={(expectedUsd) =>
+                                <TableCell>
+                                  <LocationSelect
+                                    value={item.location}
+                                    locations={state.locations}
+                                    onChange={(location) =>
+                                      updateItem(
+                                        category.id,
+                                        item.id,
+                                        withLocationPrices(
+                                          item,
+                                          location,
+                                          state.exchangeRate
+                                        )
+                                      )
+                                    }
+                                    onAddLocation={addLocation}
+                                  />
+                                </TableCell>
+                                <TableCell className="min-w-32">
+                                  <PriceBlank
+                                    location={item.location}
+                                    usd={item.expectedUsd}
+                                    pkr={item.expectedPkr}
+                                    rate={state.exchangeRate}
+                                    onUsdChange={(expectedUsd) =>
                                       updateItem(category.id, item.id, {
                                         expectedUsd,
                                         expectedPkr: usdToPkr(
@@ -668,55 +697,32 @@ export function PlannerApp() {
                                         ),
                                       })
                                     }
-                                  />
-                                </TableCell>
-                                <TableCell className="min-w-28">
-                                  <MoneyInput
-                                    prefix="₨"
-                                    value={item.expectedPkr}
-                                    onValueChange={(expectedPkr) =>
+                                    onPkrChange={(expectedPkr) =>
                                       updateItem(category.id, item.id, {
+                                        expectedUsd: null,
                                         expectedPkr,
                                       })
                                     }
                                   />
                                 </TableCell>
-                                <TableCell>
-                                  <LocationSelect
-                                    value={item.location}
-                                    locations={state.locations}
-                                    onChange={(location) =>
-                                      updateItem(category.id, item.id, {
-                                        location,
-                                      })
-                                    }
-                                    onAddLocation={addLocation}
-                                  />
-                                </TableCell>
-                                <TableCell className="min-w-28">
-                                  <MoneyInput
-                                    prefix="$"
-                                    value={item.actualUsd}
-                                    onValueChange={(actualUsd) =>
+                                <TableCell className="min-w-32">
+                                  <PriceBlank
+                                    location={item.location}
+                                    usd={item.actualUsd}
+                                    pkr={item.actualPkr}
+                                    rate={state.exchangeRate}
+                                    onUsdChange={(actualUsd) =>
                                       updateItem(category.id, item.id, {
                                         actualUsd,
-                                        actualPkr:
-                                          actualUsd === null
-                                            ? item.actualPkr
-                                            : usdToPkr(
-                                                actualUsd,
-                                                state.exchangeRate
-                                              ),
+                                        actualPkr: usdToPkr(
+                                          actualUsd,
+                                          state.exchangeRate
+                                        ),
                                       })
                                     }
-                                  />
-                                </TableCell>
-                                <TableCell className="min-w-28">
-                                  <MoneyInput
-                                    prefix="₨"
-                                    value={item.actualPkr}
-                                    onValueChange={(actualPkr) =>
+                                    onPkrChange={(actualPkr) =>
                                       updateItem(category.id, item.id, {
+                                        actualUsd: null,
                                         actualPkr,
                                       })
                                     }
@@ -794,11 +800,19 @@ export function PlannerApp() {
                             <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
                               <div>
                                 <dt className="text-muted-foreground">Expected</dt>
-                                <dd>{formatPkr(item.expectedPkr)}</dd>
+                                <dd>
+                                  {isUsLocation(item.location) && item.expectedUsd !== null
+                                    ? `${formatUsd(item.expectedUsd)} → ${formatPkr(item.expectedPkr)}`
+                                    : formatPkr(item.expectedPkr)}
+                                </dd>
                               </div>
                               <div>
                                 <dt className="text-muted-foreground">Actual</dt>
-                                <dd>{formatPkr(item.actualPkr)}</dd>
+                                <dd>
+                                  {isUsLocation(item.location) && item.actualUsd !== null
+                                    ? `${formatUsd(item.actualUsd)} → ${formatPkr(item.actualPkr)}`
+                                    : formatPkr(item.actualPkr)}
+                                </dd>
                               </div>
                             </dl>
                             <div className="mt-3 flex items-center justify-between">

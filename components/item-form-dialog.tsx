@@ -20,9 +20,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { MoneyInput } from "@/components/money-input";
+import { PriceBlank } from "@/components/price-blank";
 import { fileToCompressedDataUrl } from "@/lib/image";
-import { pkrToUsd, usdToPkr } from "@/lib/money";
+import { usdToPkr } from "@/lib/money";
+import { isUsLocation, withLocationPrices } from "@/lib/pricing";
 import {
   ITEM_STATUSES,
   type ItemStatus,
@@ -98,7 +99,9 @@ function ItemFormFields({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Prices convert with the current rate of 1 USD = {exchangeRate} PKR.
+            {isUsLocation(draft.location)
+              ? `US buy: enter USD. Shown in PKR at 1 USD = ${exchangeRate} PKR.`
+              : "Pakistan buy: enter PKR only. US conversion is not applied."}
           </DialogDescription>
         </DialogHeader>
 
@@ -149,33 +152,6 @@ function ItemFormFields({
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="grid gap-1.5">
-              <Label>Expected price (USD)</Label>
-              <MoneyInput
-                prefix="$"
-                value={draft.expectedUsd}
-                onValueChange={(expectedUsd) =>
-                  setDraft({
-                    ...draft,
-                    expectedUsd,
-                    expectedPkr: usdToPkr(expectedUsd, exchangeRate),
-                  })
-                }
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Expected price (PKR)</Label>
-              <MoneyInput
-                prefix="₨"
-                value={draft.expectedPkr}
-                onValueChange={(expectedPkr) =>
-                  setDraft({ ...draft, expectedPkr })
-                }
-              />
-            </div>
-          </div>
-
           <div className="grid gap-1.5">
             <Label>Bought from</Label>
             {locationPrompt ? (
@@ -192,7 +168,10 @@ function ItemFormFields({
                     const name = newLocation.trim();
                     if (!name) return;
                     onAddLocation(name);
-                    setDraft({ ...draft, location: name });
+                    setDraft({
+                      ...draft,
+                      ...withLocationPrices(draft, name, exchangeRate),
+                    });
                     setNewLocation("");
                     setLocationPrompt(false);
                   }}
@@ -215,7 +194,12 @@ function ItemFormFields({
                     setLocationPrompt(true);
                     return;
                   }
-                  if (value) setDraft({ ...draft, location: value });
+                  if (value) {
+                    setDraft({
+                      ...draft,
+                      ...withLocationPrices(draft, value, exchangeRate),
+                    });
+                  }
                 }}
               >
                 <SelectTrigger className="w-full">
@@ -235,35 +219,55 @@ function ItemFormFields({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
-              <Label>Actual bought price (USD)</Label>
-              <MoneyInput
-                prefix="$"
-                value={draft.actualUsd}
-                onValueChange={(actualUsd) =>
+              <Label>
+                {isUsLocation(draft.location)
+                  ? "Expected price (USD → PKR)"
+                  : "Expected price (PKR)"}
+              </Label>
+              <PriceBlank
+                location={draft.location}
+                usd={draft.expectedUsd}
+                pkr={draft.expectedPkr}
+                rate={exchangeRate}
+                onUsdChange={(expectedUsd) =>
                   setDraft({
                     ...draft,
-                    actualUsd,
-                    actualPkr:
-                      actualUsd === null
-                        ? draft.actualPkr
-                        : usdToPkr(actualUsd, exchangeRate),
+                    expectedUsd,
+                    expectedPkr: usdToPkr(expectedUsd, exchangeRate),
+                  })
+                }
+                onPkrChange={(expectedPkr) =>
+                  setDraft({
+                    ...draft,
+                    expectedUsd: null,
+                    expectedPkr,
                   })
                 }
               />
             </div>
             <div className="grid gap-1.5">
-              <Label>Actual bought price (PKR)</Label>
-              <MoneyInput
-                prefix="₨"
-                value={draft.actualPkr}
-                onValueChange={(actualPkr) =>
+              <Label>
+                {isUsLocation(draft.location)
+                  ? "Actual bought price (USD → PKR)"
+                  : "Actual bought price (PKR)"}
+              </Label>
+              <PriceBlank
+                location={draft.location}
+                usd={draft.actualUsd}
+                pkr={draft.actualPkr}
+                rate={exchangeRate}
+                onUsdChange={(actualUsd) =>
                   setDraft({
                     ...draft,
+                    actualUsd,
+                    actualPkr: usdToPkr(actualUsd, exchangeRate),
+                  })
+                }
+                onPkrChange={(actualPkr) =>
+                  setDraft({
+                    ...draft,
+                    actualUsd: null,
                     actualPkr,
-                    actualUsd:
-                      draft.actualUsd === null
-                        ? pkrToUsd(actualPkr, exchangeRate)
-                        : draft.actualUsd,
                   })
                 }
               />

@@ -4,7 +4,7 @@ Shared wedding planning board for shopping, outfits, and family preps. One link,
 
 ## What you can do
 
-- Track expected vs actual spend in PKR (USD converts with a static rate, default **1 USD = 278 PKR**)
+- Track expected vs actual spend in PKR. **US buys** are entered in USD and converted to PKR with the US rate. **Pakistan buys** (PAK, Lahore, Khushab, etc.) are entered in PKR only so local prices are not treated as dollars.
 - Organize work into default categories (Furniture, Dresses, Accessories, Makeup, Shoes, General Preps, Personal Things, Siblings Preps, Parents Preps) plus custom ones
 - Assign items, mark status (Pending / In-Process / Complete), record where things were bought, and attach photos
 - Filter the board by **who is doing** the work (Everyone, Unassigned, or a person)
