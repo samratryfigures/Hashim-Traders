@@ -630,29 +630,35 @@ function showLogin(err) {
 async function boot() {
   const migrated = loadLocal();
   if (migrated.migrated) toast("Old records were upgraded to invoices. Stock levels kept.", { type: "ok", timeout: 6000 });
-
+  showApp();
   const session = await checkSession();
-  if (session.auth || session.offline) {
-    if ($("logout-btn")) $("logout-btn").hidden = true;
-    await afterLogin();
+  if (!session.auth && !session.offline) {
+    $("logout-btn").hidden = false;
+    showLogin();
+    $("login-form").onsubmit = async (e) => {
+      e.preventDefault();
+      $("login-btn").disabled = true;
+      const start = Date.now();
+      const result = await login($("password").value);
+      const wait = 650 - (Date.now() - start);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      $("login-btn").disabled = false;
+      if (!result.ok) {
+        showLogin(result.error || "Wrong password");
+        return;
+      }
+      $("login-screen").hidden = true;
+      $("app").hidden = false;
+      const cloud = await loadFromCloud();
+      if (cloud.offline) toast("Working from this device until the cloud is reachable.", { type: "warn" });
+    };
     return;
   }
-  $("logout-btn").hidden = false;
-  showLogin();
-  $("login-form").onsubmit = async (e) => {
-    e.preventDefault();
-    $("login-btn").disabled = true;
-    const start = Date.now();
-    const result = await login($("password").value);
-    const wait = 650 - (Date.now() - start);
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    $("login-btn").disabled = false;
-    if (!result.ok) {
-      showLogin(result.error || "Wrong password");
-      return;
-    }
-    await afterLogin();
-  };
+  if ($("logout-btn")) $("logout-btn").hidden = true;
+  const cloud = await loadFromCloud();
+  if (cloud.offline) toast("Working from this device until the cloud is reachable.", { type: "warn" });
+  const info = payloadInfo();
+  if (info.warn) toast(`Database size ${info.mb} MB`, { type: "warn" });
 }
 
 async function afterLogin() {
