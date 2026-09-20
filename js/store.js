@@ -49,7 +49,7 @@ export function persistLocal() {
   localStorage.setItem(LOCAL_KEY_V2, JSON.stringify(store.db));
 }
 
-export function setDb(db, { bump = true } = {}) {
+export function setDb(db, { bump = true, sync = true } = {}) {
   store.db = db;
   if (bump) {
     store.db.revision = (Number(store.db.revision) || 0) + 1;
@@ -57,7 +57,7 @@ export function setDb(db, { bump = true } = {}) {
   }
   persistLocal();
   notify();
-  scheduleSync();
+  if (sync) scheduleSync();
 }
 
 export function commit(mutator, { undoLabel } = {}) {

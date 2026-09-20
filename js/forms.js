@@ -229,7 +229,9 @@ function bindForm(wrap, state, isSale, close, printAfter) {
     });
     wrap.querySelectorAll(".item-rate").forEach((inp) => {
       inp.oninput = () => {
-        state.items[Number(inp.dataset.idx)].rate = num(inp.value);
+        const i = Number(inp.dataset.idx);
+        state.items[i].rate = num(inp.value);
+        if (!isSale) state.items[i].cost = num(inp.value);
         refreshTotals();
       };
     });

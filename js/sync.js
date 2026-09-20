@@ -78,7 +78,7 @@ export async function loadFromCloud() {
       const cloud = normalizeDb(data.db);
       store.loadedRevision = cloud.revision;
       store.loadedUpdatedAt = cloud.updatedAt;
-      setDb(cloud, { bump: false });
+      setDb(cloud, { bump: false, sync: false });
       persistLocal();
     }
 

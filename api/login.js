@@ -8,8 +8,10 @@ module.exports = async function handler(req, res) {
   try {
     const body = await readBody(req);
     const ok = timingSafeEqualStr(body.password || "", password);
-    await new Promise((r) => setTimeout(r, 400));
-    if (!ok) return json(res, 401, { error: "Wrong password" });
+    if (!ok) {
+      await new Promise((r) => setTimeout(r, 450));
+      return json(res, 401, { error: "Wrong password" });
+    }
     setSession(res, secret);
     return json(res, 200, { ok: true });
   } catch (err) {
