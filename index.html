@@ -8,7 +8,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
-  <div id="login-screen" class="login-screen">
+  <div id="login-screen" class="login-screen" hidden>
     <form id="login-form" class="login-card">
       <p class="eyebrow">HASHMI TRADERS</p>
       <h1>Business Manager</h1>
@@ -32,7 +32,7 @@
         <span id="sync-badge" class="sync-badge" data-state="idle">Saved ✓</span>
         <button type="button" class="btn sm ghost" id="sync-now">Sync now</button>
         <button type="button" class="icon-btn" id="theme-btn" aria-label="Theme">◐</button>
-        <button type="button" class="btn sm ghost" id="logout-btn">Logout</button>
+        <button type="button" class="btn sm ghost" id="logout-btn" hidden>Logout</button>
       </div>
     </header>
     <div class="wrap">

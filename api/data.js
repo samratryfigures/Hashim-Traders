@@ -1,7 +1,12 @@
 const { getSession, json, readBody, readCloud, writeCloud } = require("./_lib");
 
+function allowed(req) {
+  if (!process.env.APP_PASSWORD) return true;
+  return !!getSession(req);
+}
+
 module.exports = async function handler(req, res) {
-  if (!getSession(req)) return json(res, 401, { error: "Unauthorized" });
+  if (!allowed(req)) return json(res, 401, { error: "Unauthorized" });
   try {
     if (req.method === "GET") {
       const cloud = await readCloud();

@@ -632,25 +632,27 @@ async function boot() {
   if (migrated.migrated) toast("Old records were upgraded to invoices. Stock levels kept.", { type: "ok", timeout: 6000 });
 
   const session = await checkSession();
-  if (!session.auth) {
-    showLogin();
-    $("login-form").onsubmit = async (e) => {
-      e.preventDefault();
-      $("login-btn").disabled = true;
-      const start = Date.now();
-      const result = await login($("password").value);
-      const wait = 650 - (Date.now() - start);
-      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      $("login-btn").disabled = false;
-      if (!result.ok) {
-        showLogin(result.error || "Wrong password");
-        return;
-      }
-      await afterLogin();
-    };
+  if (session.auth || session.offline) {
+    if ($("logout-btn")) $("logout-btn").hidden = true;
+    await afterLogin();
     return;
   }
-  await afterLogin();
+  $("logout-btn").hidden = false;
+  showLogin();
+  $("login-form").onsubmit = async (e) => {
+    e.preventDefault();
+    $("login-btn").disabled = true;
+    const start = Date.now();
+    const result = await login($("password").value);
+    const wait = 650 - (Date.now() - start);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    $("login-btn").disabled = false;
+    if (!result.ok) {
+      showLogin(result.error || "Wrong password");
+      return;
+    }
+    await afterLogin();
+  };
 }
 
 async function afterLogin() {

@@ -12,14 +12,14 @@ Stock and party balances are **never stored**. They are computed from opening st
 - Customer and supplier **khata** (ledgers) with print statement
 - Dashboard and Reports time filter (Today → Custom) with Chart.js
 - Edit / Delete everywhere, archive instead of hard-delete when a record has history
-- Login password (server cookie), live sync, Export / Import Backup JSON
+- Optional login password, live sync, Export / Import Backup JSON
 - Print A4 invoice or 80mm receipt
 
 ## Run locally
 
 ```bash
 cp .env.example .env.local
-# set APP_PASSWORD and SESSION_SECRET (required)
+# Leave APP_PASSWORD empty for an open shop. Set it only if you want a login screen.
 node dev-server.js
 ```
 
@@ -82,40 +82,28 @@ Daily backups: Drive folder **HASHMI TRADERS Backups**, one copy per day, last *
 
 ## 3. GitHub + Vercel
 
-This project is static files plus `/api` Node functions. **No build command.**
+Repo: [https://github.com/samratryfigures/Hashim-Traders](https://github.com/samratryfigures/Hashim-Traders)
 
-### GitHub (if you still need to create the repo)
-
-```bash
-git add .
-git commit -m "HASHMI TRADERS Business Manager"
-# If gh is installed:
-gh repo create hashmi-traders --private --source=. --remote=origin --push
-# Otherwise:
-# 1. On GitHub click New repository → name hashmi-traders → Create
-# 2. git remote add origin git@github.com:YOUR_USER/hashmi-traders.git
-# 3. git branch -M main
-# 4. git push -u origin main
-```
+This project is static files plus `/api` Node functions. **No build command.** Login is **off** unless you set `APP_PASSWORD`.
 
 ### Vercel (browser)
 
-1. Log in at [https://vercel.com](https://vercel.com) with the GitHub account that has this repo.
-2. **Add New → Project → Import** the GitHub repo.
+1. Log in at [https://vercel.com](https://vercel.com) with the GitHub account `samratryfigures`.
+2. **Add New → Project → Import** `Hashim-Traders`.
 3. **Framework Preset:** Other.
 4. **Build Command:** leave empty. **Output Directory:** leave empty / `.`
 5. **Root Directory:** `.`
-6. **Environment Variables** — add all four:
+6. **Environment Variables** (optional until the Google Sheet is connected):
 
 | Name | Value |
 | --- | --- |
-| `APP_PASSWORD` | The shop login password (only people with this can open the app) |
-| `SESSION_SECRET` | A second long random string (cookie signing, not the password) |
+| `APP_PASSWORD` | Leave empty for no login |
+| `SESSION_SECRET` | Only needed if you later add a password |
 | `APPS_SCRIPT_URL` | The `/exec` URL from step 2 |
 | `APPS_SCRIPT_TOKEN` | **Exactly** the Script Property `SECRET` |
 
 7. Click **Deploy**.
-8. After deploy, open the production URL. You should see the login screen.
+8. Open the production URL — the shop opens with no password.
 9. Every later `git push` to `main` auto-deploys.
 
 ### Vercel CLI alternative
@@ -123,8 +111,6 @@ gh repo create hashmi-traders --private --source=. --remote=origin --push
 ```bash
 npx vercel login
 npx vercel link
-npx vercel env add APP_PASSWORD
-npx vercel env add SESSION_SECRET
 npx vercel env add APPS_SCRIPT_URL
 npx vercel env add APPS_SCRIPT_TOKEN
 npx vercel --prod
