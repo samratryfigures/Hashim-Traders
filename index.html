@@ -37,18 +37,19 @@
     </header>
     <div class="wrap">
       <nav id="sidebar" class="sidebar no-print">
+        <div class="brand">HASHMI TRADERS</div>
         <div id="nav">
           <button type="button" class="active" data-page="dashboard">Dashboard</button>
-          <button type="button" data-page="sales">Sales</button>
-          <button type="button" data-page="purchases">Purchases</button>
-          <button type="button" data-page="customers">Customers</button>
-          <button type="button" data-page="suppliers">Suppliers</button>
-          <button type="button" data-page="khata">Khata</button>
+          <button type="button" data-page="sales">POS / Sales</button>
           <button type="button" data-page="products">Products</button>
+          <button type="button" data-page="customers">Customers</button>
+          <button type="button" data-page="purchases">Purchases</button>
+          <button type="button" data-page="khata">Khata</button>
+          <button type="button" data-page="suppliers">Suppliers</button>
           <button type="button" data-page="payments">Payments</button>
           <button type="button" data-page="returns">Returns</button>
-          <button type="button" data-page="expenses">Expenses</button>
           <button type="button" data-page="reports">Reports</button>
+          <button type="button" data-page="expenses">Expenses</button>
           <button type="button" data-page="settings">Settings</button>
         </div>
       </nav>
@@ -67,9 +68,61 @@
         </section>
 
         <section id="sales" class="page">
-          <div class="page-head"><h2>Sales</h2><button type="button" class="btn primary" id="new-sale">New sale</button></div>
-          <p class="muted">One person, one bill: add every item they took (any category) on the same invoice. Remainder goes to khata if you choose Udhaar.</p>
-          <div class="panel" id="sales-table"></div>
+          <h2 class="pos-title">Point of Sale</h2>
+          <div class="pos-grid">
+            <div class="pos-cart">
+              <div class="pos-search-wrap">
+                <input id="pos-search" type="search" placeholder="Search product or barcode…" autocomplete="off">
+                <div id="pos-hits" class="pos-hits" hidden></div>
+              </div>
+              <div class="table-scroll">
+                <table class="pos-table">
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th>Qty</th>
+                      <th>Unit</th>
+                      <th>Price</th>
+                      <th>Total</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="pos-lines"></tbody>
+                </table>
+              </div>
+            </div>
+            <aside class="pos-pay">
+              <label>Customer
+                <div class="row-split">
+                  <select id="pos-customer"></select>
+                  <button type="button" class="btn sm" id="pos-add-cust">+</button>
+                </div>
+              </label>
+              <label>Discount
+                <input id="pos-discount" type="number" min="0" step="any" value="0">
+              </label>
+              <label>Paid
+                <input id="pos-paid" type="number" min="0" step="any" value="0">
+              </label>
+              <label>Payment
+                <select id="pos-method">
+                  <option value="cash">cash</option>
+                  <option value="credit">udhaar</option>
+                  <option value="bank">bank</option>
+                  <option value="advance">advance</option>
+                </select>
+              </label>
+              <div class="pos-total-block">
+                <div>Total: <strong id="pos-total">Rs 0</strong></div>
+                <div id="pos-due" class="muted"></div>
+              </div>
+              <button type="button" class="btn pos-complete" id="pos-complete">Complete Sale</button>
+            </aside>
+          </div>
+          <div class="panel">
+            <h3>Today’s bills</h3>
+            <div id="sales-table"></div>
+          </div>
         </section>
 
         <section id="purchases" class="page">

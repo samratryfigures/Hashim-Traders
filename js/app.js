@@ -26,6 +26,7 @@ import {
   tryDelete,
 } from "./forms.js";
 import { invoiceHtml, creditNoteHtml, statementHtml, printHtml } from "./print.js";
+import { bindPOS, refreshPOS } from "./pos.js";
 import { login, logout, checkSession, loadFromCloud, syncHandler, pushCloud } from "./sync.js";
 import { normalizeDb } from "./migrate.js";
 
@@ -199,10 +200,11 @@ function invoiceRows() {
 }
 
 function renderSales() {
+  refreshPOS();
   bindTable($("sales-table"), {
     searchPlaceholder: "Search invoices…",
     empty: "No sales yet",
-    emptyHint: "Create one invoice per visit. Add several products on the same bill.",
+    emptyHint: "Completed sales show here. Use Point of Sale above for a new bill.",
     chips: [
       { id: "all", label: "All" },
       { id: "paid", label: "Paid" },
@@ -590,7 +592,7 @@ function bindChrome() {
     location.reload();
   };
   $("sync-now").onclick = () => pushCloud(store.db);
-  $("new-sale").onclick = () => openDocumentForm({ kind: "sale" });
+  bindPOS();
   $("new-purchase").onclick = () => openDocumentForm({ kind: "purchase" });
   $("new-product").onclick = () => openProductForm();
   $("new-expense").onclick = () => openExpenseForm();
@@ -643,7 +645,7 @@ function bindChrome() {
     }
     if (e.key.toLowerCase() === "n" && tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") {
       const p = document.querySelector(".page.active")?.id;
-      if (p === "sales") openDocumentForm({ kind: "sale" });
+      if (p === "sales") document.getElementById("pos-search")?.focus();
       if (p === "purchases") openDocumentForm({ kind: "purchase" });
       if (p === "products") openProductForm();
       if (p === "expenses") openExpenseForm();
