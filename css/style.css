@@ -4,8 +4,8 @@
   --ink: #1c1917;
   --muted: #78716c;
   --line: #e7e5e4;
-  --accent: #0f766e;
-  --accent-2: #115e59;
+  --accent: #0d6efd;
+  --accent-2: #0b5ed7;
   --danger: #b91c1c;
   --warn: #b45309;
   --ok: #047857;
@@ -51,7 +51,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; }
 .wrap { display: flex; min-height: calc(100vh - 64px); }
 .sidebar {
   width: var(--sidebar);
-  background: #111827;
+  background: #212529;
   color: #e5e7eb;
   padding: 12px;
   flex-shrink: 0;

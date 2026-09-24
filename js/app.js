@@ -171,15 +171,16 @@ function renderProducts() {
       { key: "code", label: "Code" },
       { key: "name", label: "Product" },
       { key: "category", label: "Category" },
+      { key: "unit", label: "Unit" },
       { key: "purchasePrice", label: "Purchase", render: (r) => money(r.purchasePrice) },
       { key: "salePrice", label: "Sale", render: (r) => money(r.salePrice) },
-      { key: "stock", label: "Stock" },
+      { key: "stock", label: "Stock", render: (r) => `${r.stock} ${r.unit || "pcs"}` },
       { key: "archived", label: "", render: (r) => (r.archived ? `<span class="badge">Archived</span>` : "") },
     ],
     rows: () =>
       store.db.products
         .filter((p) => store.showArchived || !p.archived)
-        .map((p) => ({ ...p, stock: productStock(store.db, p.id) })),
+        .map((p) => ({ ...p, stock: productStock(store.db, p.id), unit: p.unit || "pcs" })),
     actions: [
       { id: "edit", label: "Edit", onClick: (r) => openProductForm(store.db.products.find((p) => p.id === r.id)) },
       { id: "del", label: "Delete", onClick: (r) => deleteOrArchive("product", r) },
@@ -415,7 +416,39 @@ function openKhata(kind, id) {
 
 function renderKhata() {
   if (!khataCtx) {
-    $("khata").innerHTML = `<div class="panel"><p class="muted">Open a customer or supplier and click View Khata.</p></div>`;
+    const custs = (store.db.customers || []).filter((p) => store.showArchived || !p.archived);
+    const sups = (store.db.suppliers || []).filter((p) => store.showArchived || !p.archived);
+    const row = (kind, p) => {
+      const lab = balanceLabel(kind, partyBalance(store.db, kind, p.id));
+      return `<tr class="clickable" data-kind="${kind}" data-id="${p.id}">
+        <td>${escapeHtml(p.name)}</td>
+        <td>${escapeHtml(p.phone || "")}</td>
+        <td><span class="badge badge-${lab.kind}">${escapeHtml(lab.text)}</span></td>
+        <td><button type="button" class="btn sm primary" data-kind="${kind}" data-id="${p.id}">Open khata</button></td>
+      </tr>`;
+    };
+    $("khata").innerHTML = `
+      <div class="page-head"><h2>Khata</h2></div>
+      <div class="panel">
+        <h3>Customers</h3>
+        <div class="table-scroll"><table class="data-table">
+          <thead><tr><th>Name</th><th>Phone</th><th>Balance</th><th></th></tr></thead>
+          <tbody>${custs.length ? custs.map((p) => row("customer", p)).join("") : `<tr><td colspan="4">No customers yet</td></tr>`}</tbody>
+        </table></div>
+      </div>
+      <div class="panel">
+        <h3>Suppliers</h3>
+        <div class="table-scroll"><table class="data-table">
+          <thead><tr><th>Name</th><th>Phone</th><th>Balance</th><th></th></tr></thead>
+          <tbody>${sups.length ? sups.map((p) => row("supplier", p)).join("") : `<tr><td colspan="4">No suppliers yet</td></tr>`}</tbody>
+        </table></div>
+      </div>`;
+    $("khata").querySelectorAll("[data-id]").forEach((el) => {
+      el.onclick = (e) => {
+        e.preventDefault();
+        openKhata(el.dataset.kind, el.dataset.id);
+      };
+    });
     return;
   }
   const { kind, id } = khataCtx;
@@ -431,6 +464,7 @@ function renderKhata() {
       <button type="button" class="btn ghost" id="khata-back">← Back</button>
       <h2>${escapeHtml(name)} · Khata</h2>
       <div class="row-split">
+        <button type="button" class="btn" id="khata-sale">${kind === "customer" ? "New sale" : "New purchase"}</button>
         <button type="button" class="btn" id="khata-pay">${kind === "customer" ? "Receive Payment" : "Make Payment"}</button>
         <button type="button" class="btn primary" id="khata-print">Print Statement</button>
       </div>
@@ -467,7 +501,12 @@ function renderKhata() {
         </table>
       </div>
     </div>`;
-  $("khata-back").onclick = () => showPage(kind === "customer" ? "customers" : "suppliers");
+  $("khata-back").onclick = () => {
+    khataCtx = null;
+    showPage("khata");
+  };
+  $("khata-sale").onclick = () =>
+    openDocumentForm({ kind: kind === "customer" ? "sale" : "purchase", partyId: id });
   $("khata-pay").onclick = () => openPaymentForm({ partyType: kind, partyId: id });
   $("khata-print").onclick = () => printHtml(statementHtml(kind, id, range));
   $("khata-from").onchange = renderKhata;
@@ -539,6 +578,7 @@ pages.render = render;
 function bindChrome() {
   document.querySelectorAll("#nav button[data-page]").forEach((b) => {
     b.onclick = () => {
+      if (b.dataset.page === "khata") khataCtx = null;
       showPage(b.dataset.page);
       $("sidebar").classList.remove("open");
     };
@@ -615,8 +655,11 @@ function showApp() {
   $("login-screen").hidden = true;
   $("app").hidden = false;
   setTheme(store.theme);
-  bindChrome();
-  subscribe(render);
+  if (!window.__htBound) {
+    window.__htBound = true;
+    bindChrome();
+    subscribe(render);
+  }
   render();
 }
 

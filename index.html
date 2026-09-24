@@ -39,14 +39,15 @@
       <nav id="sidebar" class="sidebar no-print">
         <div id="nav">
           <button type="button" class="active" data-page="dashboard">Dashboard</button>
-          <button type="button" data-page="products">Products</button>
           <button type="button" data-page="sales">Sales</button>
           <button type="button" data-page="purchases">Purchases</button>
-          <button type="button" data-page="returns">Returns</button>
-          <button type="button" data-page="payments">Payments</button>
-          <button type="button" data-page="expenses">Expenses</button>
           <button type="button" data-page="customers">Customers</button>
           <button type="button" data-page="suppliers">Suppliers</button>
+          <button type="button" data-page="khata">Khata</button>
+          <button type="button" data-page="products">Products</button>
+          <button type="button" data-page="payments">Payments</button>
+          <button type="button" data-page="returns">Returns</button>
+          <button type="button" data-page="expenses">Expenses</button>
           <button type="button" data-page="reports">Reports</button>
           <button type="button" data-page="settings">Settings</button>
         </div>
@@ -66,8 +67,8 @@
         </section>
 
         <section id="sales" class="page">
-          <div class="page-head"><h2>Sales invoices</h2><button type="button" class="btn primary" id="new-sale">New invoice</button></div>
-          <p class="muted">One visit = one invoice. Add every product the customer takes on the same bill.</p>
+          <div class="page-head"><h2>Sales</h2><button type="button" class="btn primary" id="new-sale">New sale</button></div>
+          <p class="muted">One person, one bill: add every item they took (any category) on the same invoice. Remainder goes to khata if you choose Udhaar.</p>
           <div class="panel" id="sales-table"></div>
         </section>
 

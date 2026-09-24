@@ -138,6 +138,7 @@ export function migrateV1(old) {
       purchasePrice: num(p.purchase ?? p.purchasePrice),
       salePrice: num(p.sale ?? p.salePrice),
       openingStock,
+      unit: p.unit || "packets",
       archived: !!p.archived,
     });
   }

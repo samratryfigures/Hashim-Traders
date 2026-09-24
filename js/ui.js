@@ -92,6 +92,12 @@ export function skeleton(n = 4) {
 }
 
 export function bindTable(container, opts) {
+  container._htOpts = opts;
+  if (container._htBound) {
+    container._htRender();
+    return container._htApi;
+  }
+  container._htBound = true;
   const state = {
     q: "",
     sort: opts.sort || { key: opts.columns[0]?.key, dir: "desc" },
@@ -101,6 +107,7 @@ export function bindTable(container, opts) {
   };
 
   function rows() {
+    const opts = container._htOpts;
     let list = opts.rows() || [];
     if (opts.filterChip && state.chip !== "all") list = list.filter((r) => opts.filterChip(r, state.chip));
     const q = state.q.trim().toLowerCase();
@@ -120,6 +127,7 @@ export function bindTable(container, opts) {
   }
 
   function render() {
+    const opts = container._htOpts;
     const all = rows();
     const pages = Math.max(1, Math.ceil(all.length / state.pageSize));
     if (state.page > pages) state.page = pages;
@@ -213,7 +221,9 @@ export function bindTable(container, opts) {
   }
 
   render();
-  return { render, state };
+  container._htRender = render;
+  container._htApi = { render, state };
+  return container._htApi;
 }
 
 export function fillDateInput(el, value) {

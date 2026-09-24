@@ -25,7 +25,7 @@ export function invoiceHtml(doc, { kind = "sale", thermal = false } = {}) {
   const items = (doc.items || [])
     .map(
       (it, i) =>
-        `<tr><td>${i + 1}</td><td>${escapeHtml(it.name)}</td><td>${it.qty}</td><td>${money(it.rate)}</td><td>${money(it.lineTotal ?? it.qty * it.rate)}</td></tr>`
+        `<tr><td>${i + 1}</td><td>${escapeHtml(it.name)}</td><td>${it.qty} ${escapeHtml(it.unit || "")}</td><td>${money(it.rate)}</td><td>${money(it.lineTotal ?? it.qty * it.rate)}</td></tr>`
     )
     .join("");
   const method = (doc.payment?.method || "").toUpperCase();
@@ -71,7 +71,7 @@ export function creditNoteHtml(ret) {
   const items = (ret.items || [])
     .map(
       (it, i) =>
-        `<tr><td>${i + 1}</td><td>${escapeHtml(it.name)}</td><td>${it.qty}</td><td>${money(it.rate)}</td><td>${money(it.lineTotal)}</td></tr>`
+        `<tr><td>${i + 1}</td><td>${escapeHtml(it.name)}</td><td>${it.qty} ${escapeHtml(it.unit || "")}</td><td>${money(it.rate)}</td><td>${money(it.lineTotal)}</td></tr>`
     )
     .join("");
   return `

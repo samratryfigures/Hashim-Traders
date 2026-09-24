@@ -160,10 +160,69 @@ async function gasFetch(action, db) {
   return res.json();
 }
 
+async function githubHeaders() {
+  return {
+    Authorization: "Bearer " + process.env.GITHUB_TOKEN,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "hashmi-traders",
+  };
+}
+
+function githubRepo() {
+  return process.env.GITHUB_REPO || "samratryfigures/Hashim-Traders";
+}
+
+function githubPath() {
+  return process.env.GITHUB_DATA_PATH || "data/live.json";
+}
+
+async function readGithubDb() {
+  const url = `https://api.github.com/repos/${githubRepo()}/contents/${githubPath()}`;
+  const res = await fetch(url, { headers: await githubHeaders() });
+  if (res.status === 404) return { empty: true, db: null };
+  if (!res.ok) throw new Error("GitHub read failed: " + res.status);
+  const meta = await res.json();
+  const raw = Buffer.from(String(meta.content || "").replace(/\n/g, ""), "base64").toString("utf8");
+  if (!raw) return { empty: true, db: null, sha: meta.sha };
+  const db = JSON.parse(raw);
+  const empty = !db || (!(db.products || []).length && !(db.invoices || []).length && !(db.customers || []).length);
+  return { empty, db, sha: meta.sha };
+}
+
+async function writeGithubDb(db) {
+  const url = `https://api.github.com/repos/${githubRepo()}/contents/${githubPath()}`;
+  const headers = await githubHeaders();
+  let sha;
+  const cur = await fetch(url, { headers });
+  if (cur.ok) {
+    const meta = await cur.json();
+    sha = meta.sha;
+  }
+  const content = Buffer.from(JSON.stringify(db)).toString("base64");
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: "HASHMI TRADERS live books",
+      content,
+      sha,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error("GitHub write failed: " + res.status + " " + err.slice(0, 200));
+  }
+  return { ok: true, db };
+}
+
 async function readCloud() {
   if (process.env.APPS_SCRIPT_URL) {
     const data = await gasFetch("read");
     return data;
+  }
+  if (process.env.GITHUB_TOKEN) {
+    return readGithubDb();
   }
   return readFileDb();
 }
@@ -171,6 +230,9 @@ async function readCloud() {
 async function writeCloud(db) {
   if (process.env.APPS_SCRIPT_URL) {
     return gasFetch("write", db);
+  }
+  if (process.env.GITHUB_TOKEN) {
+    return writeGithubDb(db);
   }
   writeFileDb(db);
   return { ok: true, db };

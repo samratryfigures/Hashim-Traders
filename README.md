@@ -146,4 +146,4 @@ npx vercel --prod
 
 ## Architecture
 
-Browser → `/api/data` (Vercel, cookie auth) → Google Apps Script `/exec` → Sheet tabs + `_JSON` (source of truth, chunks under 50,000 characters). `localStorage` key `hashmi_traders_v2` is the cache. Payload warning at ~3 MB (Vercel body limit 4.5 MB).
+Browser → `/api/data` (Vercel). Cloud store is either Google Apps Script or **GitHub `data/live.json`** (set `GITHUB_TOKEN` + `GITHUB_REPO`). `localStorage` is a cache. Payload warning at ~3 MB.

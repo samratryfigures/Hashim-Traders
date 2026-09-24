@@ -6,6 +6,17 @@ export const WALK_IN = "walk-in";
 export const PAYLOAD_WARN = 3 * 1024 * 1024;
 export const PAYLOAD_LIMIT = 4.5 * 1024 * 1024;
 
+export const UNITS = ["lari", "kg", "packets", "gucheh", "pcs"];
+
+export function unitLabel(u) {
+  return UNITS.includes(u) ? u : "pcs";
+}
+
+export function unitOptions(selected) {
+  const cur = unitLabel(selected);
+  return UNITS.map((u) => `<option value="${u}" ${u === cur ? "selected" : ""}>${u}</option>`).join("");
+}
+
 export function localToday(d = new Date()) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");

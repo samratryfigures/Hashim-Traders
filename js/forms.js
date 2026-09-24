@@ -1,4 +1,4 @@
-import { localToday, num, round2, uid, nextNo, WALK_IN, escapeHtml } from "./utils.js";
+import { localToday, num, round2, uid, nextNo, WALK_IN, escapeHtml, unitLabel, unitOptions } from "./utils.js";
 import {
   productStock,
   wouldGoNegative,
@@ -25,7 +25,7 @@ function suppliersActive() {
 }
 
 export function emptyItem() {
-  return { productId: "", name: "", qty: 1, rate: 0, cost: 0, lineTotal: 0 };
+  return { productId: "", name: "", qty: 1, unit: "packets", rate: 0, cost: 0, lineTotal: 0 };
 }
 
 export function docTotals(state) {
@@ -54,23 +54,39 @@ function partySelect(kind, selected) {
   );
 }
 
+function productOptions(selectedId, exclude) {
+  const list = productsActive();
+  const groups = new Map();
+  for (const p of list) {
+    const cat = p.category || "General";
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat).push(p);
+  }
+  let html = `<option value="">Product</option>`;
+  for (const [cat, items] of groups) {
+    html += `<optgroup label="${escapeHtml(cat)}">`;
+    for (const p of items) {
+      const s = productStock(store.db, p.id, exclude);
+      const u = unitLabel(p.unit);
+      html += `<option value="${p.id}" ${p.id === selectedId ? "selected" : ""}>${escapeHtml(p.name)} · ${u} · stock ${s}</option>`;
+    }
+    html += `</optgroup>`;
+  }
+  return html;
+}
+
 export function renderItemRows(state) {
   return state.items
     .map((it, idx) => {
       const stock = it.productId ? productStock(store.db, it.productId, state.exclude) : 0;
-      const opts = productsActive()
-        .map((p) => {
-          const s = productStock(store.db, p.id, state.exclude);
-          return `<option value="${p.id}" ${p.id === it.productId ? "selected" : ""}>${escapeHtml(p.name)} (Stock: ${s})</option>`;
-        })
-        .join("");
       const low = it.productId && kindQtyCheck(state, it, stock);
       return `<tr data-idx="${idx}">
         <td>
-          <select class="item-product" data-idx="${idx}"><option value="">Product</option>${opts}</select>
+          <select class="item-product" data-idx="${idx}">${productOptions(it.productId, state.exclude)}</select>
           ${low ? `<div class="field-error">${low}</div>` : ""}
         </td>
         <td><input class="item-qty" data-idx="${idx}" type="number" min="0.01" step="any" value="${it.qty}"></td>
+        <td><select class="item-unit" data-idx="${idx}">${unitOptions(it.unit)}</select></td>
         <td><input class="item-rate" data-idx="${idx}" type="number" min="0" step="any" value="${it.rate}"></td>
         <td class="line-total">${formatLine(it)}</td>
         <td><button type="button" class="icon-btn" data-remove="${idx}" aria-label="Remove">✕</button></td>
@@ -88,18 +104,20 @@ function kindQtyCheck(state, it, stock) {
   return "";
 }
 
-export function openDocumentForm({ kind, existing, printAfter = false }) {
+export function openDocumentForm({ kind, existing, printAfter = false, partyId }) {
   const isSale = kind === "sale";
   const state = {
     kind,
     id: existing?.id || uid(),
     no: existing?.no || nextNo(isSale ? "INV-" : "PUR-", (isSale ? store.db.invoices : store.db.purchases).map((x) => x.no)),
     date: existing?.date || localToday(),
-    partyId: existing ? (isSale ? existing.customerId : existing.supplierId) : isSale ? WALK_IN : "",
-    items: existing?.items?.length ? existing.items.map((x) => ({ ...x })) : [emptyItem()],
+    partyId: existing ? (isSale ? existing.customerId : existing.supplierId) : partyId || (isSale ? WALK_IN : ""),
+    items: existing?.items?.length
+      ? existing.items.map((x) => ({ ...x, unit: unitLabel(x.unit) }))
+      : [emptyItem()],
     discount: existing?.discount || 0,
     payment: {
-      method: existing?.payment?.method || "cash",
+      method: existing?.payment?.method || (isSale ? "cash" : "cash"),
       amount: existing?.payment?.amount ?? (existing ? paidAmount(existing) : 0),
       bankName: existing?.payment?.bankName || "",
       reference: existing?.payment?.reference || "",
@@ -137,18 +155,19 @@ function formHtml(state, isSale) {
       </div>
       <div class="table-scroll">
         <table class="items-table">
-          <thead><tr><th>Product</th><th>Qty</th><th>Rate</th><th>Amount</th><th></th></tr></thead>
+          <thead><tr><th>Product (any category)</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount</th><th></th></tr></thead>
           <tbody class="item-body">${renderItemRows(state)}</tbody>
         </table>
       </div>
       <button type="button" class="btn ghost" data-add-item>+ Add another product</button>
+      <p class="muted">One customer can take items from many categories on this same bill.</p>
       <div class="form-grid">
         <label>Discount (Rs)<input type="number" min="0" step="any" name="discount" value="${state.discount}"></label>
-        <label>Payment method
+        <label>How paid
           <select name="method">
-            <option value="cash" ${state.payment.method === "cash" ? "selected" : ""}>Cash</option>
-            <option value="bank" ${state.payment.method === "bank" ? "selected" : ""}>Bank</option>
-            <option value="credit" ${state.payment.method === "credit" ? "selected" : ""}>Credit (udhaar)</option>
+            <option value="cash" ${state.payment.method === "cash" ? "selected" : ""}>Cash (full)</option>
+            <option value="credit" ${state.payment.method === "credit" ? "selected" : ""}>Udhaar (khata)</option>
+            <option value="bank" ${state.payment.method === "bank" ? "selected" : ""}>Bank / partial</option>
             <option value="advance" ${state.payment.method === "advance" ? "selected" : ""}>Advance</option>
           </select>
         </label>
@@ -193,6 +212,11 @@ function bindForm(wrap, state, isSale, close, printAfter) {
       state.payment.amount = 0;
       form.paid.value = 0;
     }
+    if (state.payment.method === "cash") {
+      const t = totalsFromItems(state.items, state.discount);
+      state.payment.amount = t.total;
+      form.paid.value = t.total;
+    }
   }
 
   function refreshItems() {
@@ -209,8 +233,9 @@ function bindForm(wrap, state, isSale, close, printAfter) {
         state.items[i].productId = sel.value;
         if (p) {
           state.items[i].name = p.name;
-          state.items[i].cost = isSale ? num(p.purchasePrice) : num(p.purchasePrice);
+          state.items[i].cost = num(p.purchasePrice);
           state.items[i].rate = isSale ? num(p.salePrice) : num(p.purchasePrice);
+          state.items[i].unit = unitLabel(p.unit);
         }
         refreshItems();
       };
@@ -225,6 +250,11 @@ function bindForm(wrap, state, isSale, close, printAfter) {
         const msg = kindQtyCheck(state, it, stock);
         const cell = inp.closest("tr").querySelector(".field-error");
         if (cell) cell.textContent = msg || "";
+      };
+    });
+    wrap.querySelectorAll(".item-unit").forEach((sel) => {
+      sel.onchange = () => {
+        state.items[Number(sel.dataset.idx)].unit = unitLabel(sel.value);
       };
     });
     wrap.querySelectorAll(".item-rate").forEach((inp) => {
@@ -326,6 +356,7 @@ function bindForm(wrap, state, isSale, close, printAfter) {
         productId: it.productId,
         name: it.name,
         qty: num(it.qty),
+        unit: unitLabel(it.unit),
         rate: num(it.rate),
         cost: num(it.cost),
         lineTotal: round2(num(it.qty) * num(it.rate)),
@@ -659,6 +690,9 @@ export function openProductForm(existing) {
         <label>Name<input name="name" required value="${escapeHtml(existing?.name || "")}"></label>
         <label>Code<input name="code" value="${escapeHtml(existing?.code || "")}"></label>
         <label>Category<input name="category" value="${escapeHtml(existing?.category || "")}"></label>
+        <label>Unit
+          <select name="unit">${unitOptions(existing?.unit || "packets")}</select>
+        </label>
         <label>Purchase price<input type="number" min="0" step="any" name="purchasePrice" value="${existing?.purchasePrice ?? ""}"></label>
         <label>Sale price<input type="number" min="0" step="any" name="salePrice" value="${existing?.salePrice ?? ""}"></label>
         <label>Opening stock<input type="number" step="any" name="openingStock" value="${existing?.openingStock ?? 0}"></label>
@@ -677,6 +711,7 @@ export function openProductForm(existing) {
           name: f.name.value.trim(),
           code: f.code.value.trim(),
           category: f.category.value.trim(),
+          unit: unitLabel(f.unit.value),
           purchasePrice: num(f.purchasePrice.value),
           salePrice: num(f.salePrice.value),
           openingStock: num(f.openingStock.value),
