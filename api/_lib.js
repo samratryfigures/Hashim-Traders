@@ -281,7 +281,7 @@ async function writeGithubDb(db, attempt = 0) {
   return { ok: true, db: outgoing };
 }
 
-const SHOP_MARKER = "HASHMI_BUILD pos15";
+const SHOP_MARKER = "HASHMI_BUILD pos16";
 let shopPublish = { checked: 0, ok: false };
 
 const SHOP_STATIC = [
@@ -309,7 +309,7 @@ async function collectShopFiles() {
   const files = [];
   const origin = shopOrigin();
   for (const rel of SHOP_STATIC) {
-    const res = await fetch(origin + "/" + rel + "?v=pos15", { cache: "no-store" });
+    const res = await fetch(origin + "/" + rel + "?v=pos16", { cache: "no-store" });
     if (!res.ok) continue;
     files.push({ path: rel, content: await res.text() });
   }
@@ -363,7 +363,7 @@ async function publishShopIfStale() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: "HASHMI TRADERS shop v15",
+        message: "HASHMI TRADERS shop v16",
         tree: treeRes.data.sha,
         parents: [ref.data.object.sha],
       }),
@@ -384,13 +384,23 @@ async function publishShopIfStale() {
   }
 }
 
-function mergeList(local, cloud) {
+function mergeRemoved(a, b) {
+  const keys = ["products", "invoices", "purchases", "expenses", "customers", "suppliers", "payments", "returns"];
+  const out = {};
+  for (const key of keys) {
+    out[key] = [...new Set([...(a?.[key] || []), ...(b?.[key] || [])].map(String))];
+  }
+  return out;
+}
+
+function mergeList(local, cloud, removedIds) {
+  const gone = removedIds || new Set();
   const map = new Map();
   for (const row of cloud || []) {
-    if (row && row.id != null) map.set(String(row.id), row);
+    if (row && row.id != null && !gone.has(String(row.id))) map.set(String(row.id), row);
   }
   for (const row of local || []) {
-    if (row && row.id != null) map.set(String(row.id), row);
+    if (row && row.id != null && !gone.has(String(row.id))) map.set(String(row.id), row);
   }
   return [...map.values()];
 }
@@ -400,17 +410,19 @@ function mergeDb(local, cloud) {
   if (!local) return cloud;
   const localTime = Date.parse(local.updatedAt || 0) || 0;
   const cloudTime = Date.parse(cloud.updatedAt || 0) || 0;
+  const removed = mergeRemoved(local.removed, cloud.removed);
   return {
     ...cloud,
     ...local,
-    products: mergeList(local.products, cloud.products),
-    invoices: mergeList(local.invoices, cloud.invoices),
-    purchases: mergeList(local.purchases, cloud.purchases),
-    customers: mergeList(local.customers, cloud.customers),
-    suppliers: mergeList(local.suppliers, cloud.suppliers),
-    payments: mergeList(local.payments, cloud.payments),
-    returns: mergeList(local.returns, cloud.returns),
-    expenses: mergeList(local.expenses, cloud.expenses),
+    products: mergeList(local.products, cloud.products, new Set(removed.products)),
+    invoices: mergeList(local.invoices, cloud.invoices, new Set(removed.invoices)),
+    purchases: mergeList(local.purchases, cloud.purchases, new Set(removed.purchases)),
+    customers: mergeList(local.customers, cloud.customers, new Set(removed.customers)),
+    suppliers: mergeList(local.suppliers, cloud.suppliers, new Set(removed.suppliers)),
+    payments: mergeList(local.payments, cloud.payments, new Set(removed.payments)),
+    returns: mergeList(local.returns, cloud.returns, new Set(removed.returns)),
+    expenses: mergeList(local.expenses, cloud.expenses, new Set(removed.expenses)),
+    removed,
     settings:
       (local.invoices?.length || local.products?.length || local.purchases?.length
         ? local.settings

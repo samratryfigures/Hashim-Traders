@@ -80,13 +80,23 @@ export function shouldKeepLocal(local, cloud) {
   return lt > ct;
 }
 
-function mergeList(local, cloud) {
+function mergeRemoved(a, b) {
+  const keys = ["products", "invoices", "purchases", "expenses", "customers", "suppliers", "payments", "returns"];
+  const out = {};
+  for (const key of keys) {
+    out[key] = [...new Set([...(a?.[key] || []), ...(b?.[key] || [])].map(String))];
+  }
+  return out;
+}
+
+function mergeList(local, cloud, removedIds) {
+  const gone = removedIds || new Set();
   const map = new Map();
   for (const row of cloud || []) {
-    if (row && row.id != null) map.set(String(row.id), row);
+    if (row && row.id != null && !gone.has(String(row.id))) map.set(String(row.id), row);
   }
   for (const row of local || []) {
-    if (row && row.id != null) map.set(String(row.id), row);
+    if (row && row.id != null && !gone.has(String(row.id))) map.set(String(row.id), row);
   }
   return [...map.values()];
 }
@@ -97,17 +107,19 @@ export function mergeDb(local, cloud) {
   if (!local) return cloud;
   const localTime = Date.parse(local.updatedAt || 0) || 0;
   const cloudTime = Date.parse(cloud.updatedAt || 0) || 0;
+  const removed = mergeRemoved(local.removed, cloud.removed);
   return {
     ...cloud,
     ...local,
-    products: mergeList(local.products, cloud.products),
-    invoices: mergeList(local.invoices, cloud.invoices),
-    purchases: mergeList(local.purchases, cloud.purchases),
-    customers: mergeList(local.customers, cloud.customers),
-    suppliers: mergeList(local.suppliers, cloud.suppliers),
-    payments: mergeList(local.payments, cloud.payments),
-    returns: mergeList(local.returns, cloud.returns),
-    expenses: mergeList(local.expenses, cloud.expenses),
+    products: mergeList(local.products, cloud.products, new Set(removed.products)),
+    invoices: mergeList(local.invoices, cloud.invoices, new Set(removed.invoices)),
+    purchases: mergeList(local.purchases, cloud.purchases, new Set(removed.purchases)),
+    customers: mergeList(local.customers, cloud.customers, new Set(removed.customers)),
+    suppliers: mergeList(local.suppliers, cloud.suppliers, new Set(removed.suppliers)),
+    payments: mergeList(local.payments, cloud.payments, new Set(removed.payments)),
+    returns: mergeList(local.returns, cloud.returns, new Set(removed.returns)),
+    expenses: mergeList(local.expenses, cloud.expenses, new Set(removed.expenses)),
+    removed,
     settings:
       (local.invoices?.length || local.products?.length || local.purchases?.length
         ? local.settings

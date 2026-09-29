@@ -203,6 +203,7 @@ tr.clickable:hover { background: color-mix(in srgb, var(--accent) 8%, transparen
 .modal-wide { width: min(960px, 100%); }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.modal-actions .btn { min-height: 44px; min-width: 108px; }
 
 .toasts { position: fixed; right: 16px; bottom: 16px; z-index: 80; display: grid; gap: 8px; }
 .toast {

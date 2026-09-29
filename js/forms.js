@@ -14,6 +14,7 @@ import {
 import { store, commit, applyUndo } from "./store.js";
 import { toast, confirmDialog, openModal } from "./ui.js";
 import { invoiceHtml, creditNoteHtml, printHtml } from "./print.js";
+import { pushCloud } from "./sync.js";
 
 function productsActive() {
   return (store.db.products || []).filter((p) => store.showArchived || !p.archived);
@@ -986,14 +987,24 @@ export async function tryDelete(kind, rec) {
     ok: "Delete",
   });
   if (!ok) return;
-  const probe = JSON.parse(JSON.stringify(store.db));
-  pull(probe, kind, rec.id);
-  const neg = wouldGoNegative(probe, {});
-  if (neg.length) {
-    toast(`Cannot delete: ${neg.map((n) => `${n.name} stock would become ${n.stock}`).join("; ")}`, { type: "err" });
-    return;
+  const key = pullKey(kind);
+  if (!key) return;
+  if (kind !== "invoice") {
+    const probe = JSON.parse(JSON.stringify(store.db));
+    pull(probe, kind, rec.id);
+    const neg = wouldGoNegative(probe, {});
+    if (neg.length) {
+      toast(`Cannot delete: ${neg.map((n) => `${n.name} stock would become ${n.stock}`).join("; ")}`, { type: "err" });
+      return;
+    }
   }
-  commit((db) => pull(db, kind, rec.id), { undoLabel: "Undo delete" });
+  commit((db) => {
+    pull(db, kind, rec.id);
+    db.removed = db.removed || {};
+    const list = Array.isArray(db.removed[key]) ? db.removed[key] : [];
+    if (!list.includes(String(rec.id))) list.push(String(rec.id));
+    db.removed[key] = list;
+  }, { undoLabel: "Undo delete" });
   toast("Deleted", {
     type: "ok",
     action: {
@@ -1001,10 +1012,11 @@ export async function tryDelete(kind, rec) {
       onClick: () => applyUndo(),
     },
   });
+  await pushCloud(store.db, { force: true });
 }
 
-function pull(db, kind, id) {
-  const map = {
+function pullKey(kind) {
+  return {
     product: "products",
     invoice: "invoices",
     purchase: "purchases",
@@ -1013,9 +1025,13 @@ function pull(db, kind, id) {
     supplier: "suppliers",
     payment: "payments",
     return: "returns",
-  };
-  const key = map[kind];
-  db[key] = db[key].filter((x) => x.id !== id);
+  }[kind];
+}
+
+function pull(db, kind, id) {
+  const key = pullKey(kind);
+  if (!key || !db[key]) return;
+  db[key] = db[key].filter((x) => String(x.id) !== String(id));
 }
 
 export { partyName };

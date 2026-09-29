@@ -42,13 +42,11 @@ export function confirmDialog({ title, message, ok = "Delete", danger = true }) 
       pointerDown = e.target;
     });
     wrap.addEventListener("click", (e) => {
-      if (e.target.dataset.act === "no") {
+      const btn = e.target.closest("[data-act]");
+      if (btn && wrap.contains(btn)) {
         wrap.remove();
-        resolve(false);
-      }
-      if (e.target.dataset.act === "yes") {
-        wrap.remove();
-        resolve(true);
+        resolve(btn.dataset.act === "yes");
+        return;
       }
       if (e.target === wrap && pointerDown === wrap) {
         wrap.remove();

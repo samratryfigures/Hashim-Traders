@@ -13,6 +13,16 @@ export function emptyDb() {
     suppliers: [],
     payments: [],
     returns: [],
+    removed: {
+      products: [],
+      invoices: [],
+      purchases: [],
+      expenses: [],
+      customers: [],
+      suppliers: [],
+      payments: [],
+      returns: [],
+    },
     settings: {
       businessName: "HASHMI TRADERS",
       phone: "",
@@ -248,9 +258,23 @@ export function normalizeDb(raw) {
   db.suppliers = raw.suppliers || [];
   db.payments = raw.payments || [];
   db.returns = raw.returns || [];
+  db.removed = {
+    products: [...new Set([...(raw.removed?.products || []).map(String)])],
+    invoices: [...new Set([...(raw.removed?.invoices || []).map(String)])],
+    purchases: [...new Set([...(raw.removed?.purchases || []).map(String)])],
+    expenses: [...new Set([...(raw.removed?.expenses || []).map(String)])],
+    customers: [...new Set([...(raw.removed?.customers || []).map(String)])],
+    suppliers: [...new Set([...(raw.removed?.suppliers || []).map(String)])],
+    payments: [...new Set([...(raw.removed?.payments || []).map(String)])],
+    returns: [...new Set([...(raw.removed?.returns || []).map(String)])],
+  };
   db.settings = { ...emptyDb().settings, ...(raw.settings || {}) };
   db.revision = num(raw.revision);
   db.updatedAt = raw.updatedAt || null;
+  for (const key of Object.keys(db.removed)) {
+    const gone = new Set(db.removed[key]);
+    if (Array.isArray(db[key])) db[key] = db[key].filter((row) => row && !gone.has(String(row.id)));
+  }
   return db;
 }
 
