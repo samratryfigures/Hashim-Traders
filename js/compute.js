@@ -477,10 +477,15 @@ export function productHasTransactions(db, id) {
   return false;
 }
 
+export function filledInvoiceItems(items) {
+  return (items || []).filter((it) => it.productId || String(it.name || "").trim());
+}
+
 export function validateInvoiceItems(items) {
-  if (!items || !items.length) return "Add at least one product";
-  for (const it of items) {
-    if (!it.productId) return "Select a product on every row";
+  const filled = filledInvoiceItems(items);
+  if (!filled.length) return "Add at least one product";
+  for (const it of filled) {
+    if (!it.name) return "Select a product on every billed row";
     if (num(it.qty) <= 0) return "Quantity must be greater than 0";
     if (num(it.rate) < 0) return "Rate cannot be negative";
   }
@@ -488,7 +493,8 @@ export function validateInvoiceItems(items) {
 }
 
 export function totalsFromItems(items, discount) {
-  const subtotal = round2((items || []).reduce((a, it) => a + num(it.qty) * num(it.rate), 0));
+  const filled = filledInvoiceItems(items);
+  const subtotal = round2(filled.reduce((a, it) => a + num(it.qty) * num(it.rate), 0));
   const disc = Math.min(subtotal, Math.max(0, num(discount)));
   const total = round2(subtotal - disc);
   return { subtotal, discount: disc, total };

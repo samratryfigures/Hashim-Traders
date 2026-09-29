@@ -9,6 +9,7 @@ import {
   validateInvoiceItems,
   totalsFromItems,
   partyName,
+  filledInvoiceItems,
 } from "./compute.js";
 import { store, commit, applyUndo } from "./store.js";
 import { toast, confirmDialog, openModal } from "./ui.js";
@@ -25,11 +26,11 @@ function suppliersActive() {
 }
 
 export function emptyItem() {
-  return { productId: "", name: "", qty: 1, unit: "packets", rate: 0, cost: 0, lineTotal: 0 };
+  return { productId: "", name: "", category: "", qty: 1, unit: "packets", rate: 0, cost: 0, lineTotal: 0 };
 }
 
 export function docTotals(state) {
-  const items = state.items.map((it) => ({
+  const items = filledInvoiceItems(state.items).map((it) => ({
     ...it,
     lineTotal: round2(num(it.qty) * num(it.rate)),
   }));
@@ -54,25 +55,13 @@ function partySelect(kind, selected) {
   );
 }
 
-function productOptions(selectedId, exclude) {
+function productHits(q) {
+  const needle = String(q || "").trim().toLowerCase();
   const list = productsActive();
-  const groups = new Map();
-  for (const p of list) {
-    const cat = p.category || "General";
-    if (!groups.has(cat)) groups.set(cat, []);
-    groups.get(cat).push(p);
-  }
-  let html = `<option value="">Product</option>`;
-  for (const [cat, items] of groups) {
-    html += `<optgroup label="${escapeHtml(cat)}">`;
-    for (const p of items) {
-      const s = productStock(store.db, p.id, exclude);
-      const u = unitLabel(p.unit);
-      html += `<option value="${p.id}" ${p.id === selectedId ? "selected" : ""}>${escapeHtml(p.name)} · ${u} · stock ${s}</option>`;
-    }
-    html += `</optgroup>`;
-  }
-  return html;
+  if (!needle) return list.slice(0, 40);
+  return list
+    .filter((p) => [p.name, p.code, p.category].some((x) => String(x || "").toLowerCase().includes(needle)))
+    .slice(0, 40);
 }
 
 export function renderItemRows(state) {
@@ -80,11 +69,16 @@ export function renderItemRows(state) {
     .map((it, idx) => {
       const stock = it.productId ? productStock(store.db, it.productId, state.exclude) : 0;
       const low = it.productId && kindQtyCheck(state, it, stock);
+      const label = it.name || "";
       return `<tr data-idx="${idx}">
+        <td>${idx + 1}</td>
         <td>
-          <select class="item-product" data-idx="${idx}">${productOptions(it.productId, state.exclude)}</select>
+          <div class="prod-picker">
+            <input class="item-product-q" data-idx="${idx}" placeholder="Type product name…" value="${escapeHtml(label)}" autocomplete="off" aria-label="Product">
+          </div>
           ${low ? `<div class="field-error">${low}</div>` : ""}
         </td>
+        <td>${escapeHtml(it.category || "—")}</td>
         <td><input class="item-qty" data-idx="${idx}" type="number" min="0.01" step="any" value="${it.qty}"></td>
         <td><select class="item-unit" data-idx="${idx}">${unitOptions(it.unit)}</select></td>
         <td><input class="item-rate" data-idx="${idx}" type="number" min="0" step="any" value="${it.rate}"></td>
@@ -114,10 +108,10 @@ export function openDocumentForm({ kind, existing, printAfter = false, partyId }
     partyId: existing ? (isSale ? existing.customerId : existing.supplierId) : partyId || (isSale ? WALK_IN : ""),
     items: existing?.items?.length
       ? existing.items.map((x) => ({ ...x, unit: unitLabel(x.unit) }))
-      : [emptyItem()],
+      : [emptyItem(), emptyItem()],
     discount: existing?.discount || 0,
     payment: {
-      method: existing?.payment?.method || (isSale ? "cash" : "cash"),
+      method: existing?.payment?.method || (isSale ? "cash" : "credit"),
       amount: existing?.payment?.amount ?? (existing ? paidAmount(existing) : 0),
       bankName: existing?.payment?.bankName || "",
       reference: existing?.payment?.reference || "",
@@ -133,7 +127,7 @@ export function openDocumentForm({ kind, existing, printAfter = false, partyId }
     title,
     width: "modal-wide",
     html: formHtml(state, isSale),
-    onOpen: (wrap) => bindForm(wrap, state, isSale, close, printAfter),
+    onOpen: (wrap, closeModal) => bindForm(wrap, state, isSale, closeModal, printAfter),
   });
   return { el, close, state };
 }
@@ -155,12 +149,15 @@ function formHtml(state, isSale) {
       </div>
       <div class="table-scroll">
         <table class="items-table">
-          <thead><tr><th>Product (any category)</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount</th><th></th></tr></thead>
+          <thead><tr><th>Sr</th><th>Product</th><th>Category</th><th>Qty</th><th>Unit</th><th>Price</th><th>Total</th><th></th></tr></thead>
           <tbody class="item-body">${renderItemRows(state)}</tbody>
         </table>
       </div>
-      <button type="button" class="btn ghost" data-add-item>+ Add another product</button>
-      <p class="muted">One customer can take items from many categories on this same bill.</p>
+      <div class="row-split item-add-row">
+        <button type="button" class="btn primary" data-add-item>+ Add another product</button>
+        <button type="button" class="btn" data-new-product>+ New product</button>
+      </div>
+      <p class="muted">${isSale ? "Type a product name on a row, or tap + Add another product for the next line." : "Type each product name on its own row. Use + Add another product for the next item. New names can be saved to the catalog from the list."}</p>
       <div class="form-grid">
         <label>Discount (Rs)<input type="number" min="0" step="any" name="discount" value="${state.discount}"></label>
         <label>How paid
@@ -219,25 +216,138 @@ function bindForm(wrap, state, isSale, close, printAfter) {
     }
   }
 
-  function refreshItems() {
+  function ensureBlankRow() {
+    const last = state.items[state.items.length - 1];
+    if (!last || last.productId) state.items.push(emptyItem());
+  }
+
+  const floatMenu = document.createElement("div");
+  floatMenu.className = "prod-menu";
+  floatMenu.hidden = true;
+  document.body.appendChild(floatMenu);
+
+  function hideMenu() {
+    floatMenu.hidden = true;
+    floatMenu.innerHTML = "";
+    delete floatMenu.dataset.idx;
+  }
+
+  const watch = new MutationObserver(() => {
+    if (!wrap.isConnected) {
+      hideMenu();
+      floatMenu.remove();
+      document.removeEventListener("pointerdown", onDocPointer, true);
+      watch.disconnect();
+    }
+  });
+  watch.observe(document.body, { childList: true });
+
+  function onDocPointer(e) {
+    if (floatMenu.contains(e.target) || e.target.closest?.(".item-product-q")) return;
+    hideMenu();
+  }
+  document.addEventListener("pointerdown", onDocPointer, true);
+
+  function refreshItems(focusSel) {
+    ensureBlankRow();
     wrap.querySelector(".item-body").innerHTML = renderItemRows(state);
     bindRows();
     refreshTotals();
+    if (focusSel) wrap.querySelector(focusSel)?.focus();
   }
 
+  function applyProduct(i, id) {
+    const p = store.db.products.find((x) => String(x.id) === String(id));
+    if (!p) {
+      state.items[i] = emptyItem();
+      return;
+    }
+    state.items[i].productId = p.id;
+    state.items[i].name = p.name;
+    state.items[i].category = p.category || "";
+    state.items[i].cost = num(p.purchasePrice);
+    state.items[i].rate = isSale ? num(p.salePrice) : num(p.purchasePrice);
+    state.items[i].unit = unitLabel(p.unit);
+  }
+
+  function startNewProduct(idx, name) {
+    openProductForm(null, {
+      defaults: { name: name || "" },
+      onSaved: (rec) => {
+        applyProduct(idx, rec.id);
+        refreshItems(`.item-qty[data-idx="${idx}"]`);
+      },
+    });
+  }
+
+  function openMenuFor(input) {
+    const idx = Number(input.dataset.idx);
+    const q = input.value;
+    const hits = productHits(q);
+    const name = q.trim();
+    const r = input.getBoundingClientRect();
+    const left = Math.min(Math.max(8, r.left), window.innerWidth - 280);
+    floatMenu.style.left = `${left}px`;
+    floatMenu.style.top = `${Math.min(r.bottom + 4, window.innerHeight - 160)}px`;
+    floatMenu.style.width = `${Math.max(r.width, 260)}px`;
+    floatMenu.dataset.idx = String(idx);
+    floatMenu.innerHTML =
+      (hits.length
+        ? hits
+            .map(
+              (p) =>
+                `<button type="button" class="prod-hit" data-pick="${escapeHtml(String(p.id))}">${escapeHtml(p.name)} <span class="muted">${escapeHtml(p.category || "General")} · ${unitLabel(p.unit)}</span></button>`
+            )
+            .join("")
+        : `<p class="muted prod-none">${name ? "No catalog match" : "Type a name, or add a new product"}</p>`) +
+      `<button type="button" class="prod-create" data-create="1">+ Add ${
+        name ? `“${escapeHtml(name)}” as new product` : "new product"
+      }</button>`;
+    floatMenu.hidden = false;
+  }
+
+  floatMenu.addEventListener("mousedown", (e) => e.preventDefault());
+  floatMenu.addEventListener("click", (e) => {
+    const idx = Number(floatMenu.dataset.idx);
+    if (Number.isNaN(idx)) return;
+    const hit = e.target.closest("[data-pick]");
+    const create = e.target.closest("[data-create]");
+    if (hit) {
+      applyProduct(idx, hit.getAttribute("data-pick"));
+      hideMenu();
+      refreshItems(`.item-qty[data-idx="${idx}"]`);
+      return;
+    }
+    if (create) {
+      const typed = wrap.querySelector(`.item-product-q[data-idx="${idx}"]`)?.value || "";
+      hideMenu();
+      startNewProduct(idx, typed.trim());
+    }
+  });
+
   function bindRows() {
-    wrap.querySelectorAll(".item-product").forEach((sel) => {
-      sel.onchange = () => {
-        const i = Number(sel.dataset.idx);
-        const p = store.db.products.find((x) => String(x.id) === sel.value);
-        state.items[i].productId = sel.value;
-        if (p) {
-          state.items[i].name = p.name;
-          state.items[i].cost = num(p.purchasePrice);
-          state.items[i].rate = isSale ? num(p.salePrice) : num(p.purchasePrice);
-          state.items[i].unit = unitLabel(p.unit);
+    wrap.querySelectorAll(".item-product-q").forEach((inp) => {
+      inp.onfocus = () => openMenuFor(inp);
+      inp.oninput = () => openMenuFor(inp);
+      inp.onkeydown = (e) => {
+        if (e.key === "Escape") {
+          hideMenu();
+          return;
         }
-        refreshItems();
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const hits = productHits(inp.value);
+        const needle = inp.value.trim().toLowerCase();
+        const exact = hits.find((p) => String(p.name).toLowerCase() === needle);
+        const i = Number(inp.dataset.idx);
+        if (exact) {
+          applyProduct(i, exact.id);
+          hideMenu();
+          refreshItems(`.item-qty[data-idx="${i}"]`);
+        } else if (inp.value.trim()) {
+          hideMenu();
+          startNewProduct(i, inp.value.trim());
+        }
       };
     });
     wrap.querySelectorAll(".item-qty").forEach((inp) => {
@@ -295,12 +405,29 @@ function bindForm(wrap, state, isSale, close, printAfter) {
     wrap.querySelector(".advance-hint").style.display = state.payment.method === "advance" ? "" : "none";
   }
 
-  form.addEventListener("input", refreshTotals);
+  form.addEventListener("input", (e) => {
+    if (e.target.classList.contains("item-product-q")) return;
+    refreshTotals();
+  });
   form.addEventListener("change", refreshTotals);
-  wrap.querySelector("[data-add-item]").onclick = () => {
+  wrap.querySelector("[data-add-item]").addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    hideMenu();
     state.items.push(emptyItem());
+    const idx = state.items.length - 1;
+    refreshItems(`.item-product-q[data-idx="${idx}"]`);
+  });
+  wrap.querySelector("[data-new-product]").addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    hideMenu();
+    const idx = state.items.findIndex((it) => !it.productId);
+    const target = idx >= 0 ? idx : state.items.length;
+    if (idx < 0) state.items.push(emptyItem());
     refreshItems();
-  };
+    startNewProduct(target, wrap.querySelector(`.item-product-q[data-idx="${target}"]`)?.value || "");
+  });
 
   wrap.querySelector("[data-quick-party]").onclick = () => {
     const name = prompt(isSale ? "New customer name" : "New supplier name");
@@ -323,6 +450,7 @@ function bindForm(wrap, state, isSale, close, printAfter) {
     if (err) {
       errorEl.hidden = false;
       errorEl.textContent = err;
+      errorEl.scrollIntoView({ block: "nearest" });
       return;
     }
     if (!state.date) {
@@ -332,7 +460,8 @@ function bindForm(wrap, state, isSale, close, printAfter) {
     }
     if (!isSale && !state.partyId) {
       errorEl.hidden = false;
-      errorEl.textContent = "Select a supplier";
+      errorEl.textContent = "Select a supplier (or tap + to add one)";
+      errorEl.scrollIntoView({ block: "nearest" });
       return;
     }
     if (state.payment.method === "advance") {
@@ -354,7 +483,8 @@ function bindForm(wrap, state, isSale, close, printAfter) {
       date: state.date,
       items: t.items.map((it) => ({
         productId: it.productId,
-        name: it.name,
+        name: it.name || store.db.products.find((p) => String(p.id) === String(it.productId))?.name || "",
+        category: it.category || store.db.products.find((p) => String(p.id) === String(it.productId))?.category || "",
         qty: num(it.qty),
         unit: unitLabel(it.unit),
         rate: num(it.rate),
@@ -407,7 +537,19 @@ function bindForm(wrap, state, isSale, close, printAfter) {
 
     close();
     successDialog(doc, isSale ? "sale" : "purchase", andPrint);
-    toast(state.isEdit ? "Saved" : isSale ? "Invoice saved" : "Purchase saved", { type: "ok" });
+    if (isSale) toast(state.isEdit ? "Saved" : "Invoice saved", { type: "ok" });
+    else {
+      const who = partyName(store.db, "supplier", doc.supplierId);
+      const due = t.due;
+      toast(
+        state.isEdit
+          ? "Purchase saved"
+          : due
+            ? `Purchase ${doc.no} saved on ${who} khata · payable ${moneyish(due)}`
+            : `Purchase ${doc.no} saved for ${who}`,
+        { type: "ok", timeout: 6000 }
+      );
+    }
   }
 
   form.onsubmit = (e) => {
@@ -447,7 +589,11 @@ export function openPaymentForm({ partyType, partyId, existing }) {
         <label>Date<input type="date" name="date" value="${existing?.date || localToday()}" required></label>
         <label>${isCust ? "Customer" : "Supplier"}
           <select name="party" required>
-            ${list.map((p) => `<option value="${p.id}" ${p.id === (existing?.partyId || partyId) ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
+            ${
+              list.length
+                ? list.map((p) => `<option value="${p.id}" ${p.id === (existing?.partyId || partyId) ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")
+                : `<option value="">Add a ${isCust ? "customer" : "supplier"} first</option>`
+            }
           </select>
         </label>
         <label>Amount<input type="number" min="0.01" step="any" name="amount" value="${existing?.amount || ""}" required></label>
@@ -470,6 +616,7 @@ export function openPaymentForm({ partyType, partyId, existing }) {
         e.preventDefault();
         const f = e.target;
         if (!f.party.value) return toast("Select a party", { type: "err" });
+        if (num(f.amount.value) <= 0) return toast("Amount must be more than 0", { type: "err" });
         const rec = {
           id: existing?.id || uid(),
           no: existing?.no || nextNo("PAY-", store.db.payments.map((p) => p.no)),
@@ -504,7 +651,7 @@ export function openReturnForm({ type, existing }) {
     no: existing?.no || nextNo(isSale ? "SR-" : "PR-", store.db.returns.filter((r) => r.type === type).map((r) => r.no)),
     date: existing?.date || localToday(),
     type,
-    partyId: existing?.partyId || "",
+    partyId: existing?.partyId || (isSale ? WALK_IN : ""),
     sourceId: existing?.sourceId || "",
     items: existing?.items ? existing.items.map((x) => ({ ...x })) : [],
     reason: existing?.reason || "",
@@ -547,7 +694,10 @@ export function openReturnForm({ type, existing }) {
         <div class="form-grid">
           <label>Date<input type="date" name="date" value="${state.date}" required></label>
           <label>${isSale ? "Customer" : "Supplier"}
-            <select name="party">${parties.map((p) => `<option value="${p.id}" ${p.id === state.partyId ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}</select>
+            <select name="party">${
+              (isSale ? `<option value="${WALK_IN}">Walk-in</option>` : `<option value="">Select</option>`) +
+              parties.map((p) => `<option value="${p.id}" ${p.id === state.partyId ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")
+            }</select>
           </label>
           <label>Original
             <select name="source"><option value="">Select</option>${sourceOptions()}</select>
@@ -592,13 +742,17 @@ export function openReturnForm({ type, existing }) {
         state.reason = form.reason.value;
         state.settlement = form.settlement.value;
         state.items = [];
+        const src = sources.find((d) => d.id === state.sourceId);
         wrap.querySelectorAll(".ret-body input[data-pid]").forEach((inp) => {
           const q = num(inp.value);
           if (q > 0) {
+            const orig = src?.items?.find((x) => String(x.productId) === String(inp.dataset.pid));
             state.items.push({
               productId: inp.dataset.pid,
               name: inp.dataset.name,
+              category: orig?.category || "",
               qty: q,
+              unit: orig?.unit || "",
               rate: num(inp.dataset.rate),
               lineTotal: round2(q * num(inp.dataset.rate)),
             });
@@ -682,20 +836,21 @@ export function openReturnForm({ type, existing }) {
   });
 }
 
-export function openProductForm(existing) {
+export function openProductForm(existing, { onSaved, defaults } = {}) {
+  const seed = { ...(defaults || {}), ...(existing || {}) };
   const { close } = openModal({
     title: existing ? "Edit product" : "Add product",
     html: `
       <form id="prod-form" class="form-grid">
-        <label>Name<input name="name" required value="${escapeHtml(existing?.name || "")}"></label>
-        <label>Code<input name="code" value="${escapeHtml(existing?.code || "")}"></label>
-        <label>Category<input name="category" value="${escapeHtml(existing?.category || "")}"></label>
+        <label>Name<input name="name" required value="${escapeHtml(seed.name || "")}"></label>
+        <label>Code<input name="code" value="${escapeHtml(seed.code || "")}"></label>
+        <label>Category<input name="category" value="${escapeHtml(seed.category || "")}"></label>
         <label>Unit
-          <select name="unit">${unitOptions(existing?.unit || "packets")}</select>
+          <select name="unit">${unitOptions(seed.unit || "packets")}</select>
         </label>
-        <label>Purchase price<input type="number" min="0" step="any" name="purchasePrice" value="${existing?.purchasePrice ?? ""}"></label>
-        <label>Sale price<input type="number" min="0" step="any" name="salePrice" value="${existing?.salePrice ?? ""}"></label>
-        <label>Opening stock<input type="number" step="any" name="openingStock" value="${existing?.openingStock ?? 0}"></label>
+        <label>Purchase price<input type="number" min="0" step="any" name="purchasePrice" value="${seed.purchasePrice ?? ""}"></label>
+        <label>Sale price<input type="number" min="0" step="any" name="salePrice" value="${seed.salePrice ?? ""}"></label>
+        <label>Opening stock<input type="number" step="any" name="openingStock" value="${seed.openingStock ?? 0}"></label>
         <p class="field-error form-error full" hidden></p>
         <div class="modal-actions full">
           <button type="button" class="btn ghost" data-close>Cancel</button>
@@ -703,6 +858,7 @@ export function openProductForm(existing) {
         </div>
       </form>`,
     onOpen: (wrap) => {
+      wrap.querySelector("[name=name]")?.focus();
       wrap.querySelector("#prod-form").onsubmit = (e) => {
         e.preventDefault();
         const f = e.target;
@@ -735,6 +891,7 @@ export function openProductForm(existing) {
         }, { undoLabel: "Undo product" });
         close();
         toast("Product saved", { type: "ok" });
+        if (onSaved) onSaved(rec);
       };
     },
   });

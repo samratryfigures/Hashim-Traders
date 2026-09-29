@@ -1,4 +1,4 @@
-const { getSession, json, readBody, readCloud, writeCloud } = require("./_lib");
+const { getSession, json, readBody, readCloud, writeCloud, mergeDb } = require("./_lib");
 
 function allowed(req) {
   if (!process.env.APP_PASSWORD) return true;
@@ -20,18 +20,21 @@ module.exports = async function handler(req, res) {
       if (bytes > 4.5 * 1024 * 1024) return json(res, 413, { error: "Payload too large (Vercel 4.5 MB limit)" });
       const cloud = await readCloud();
       const cloudDb = cloud?.db;
-      if (!body.force && cloudDb && cloudDb.updatedAt && body.loadedUpdatedAt) {
-        const cloudTime = Date.parse(cloudDb.updatedAt);
-        const loadedTime = Date.parse(body.loadedUpdatedAt);
-        if (cloudTime > loadedTime) {
-          return json(res, 409, {
-            error: "conflict",
-            db: cloudDb,
-          });
+      let outgoing = incoming;
+      if (cloudDb) {
+        outgoing = mergeDb(incoming, cloudDb);
+        const inR = Number(incoming.revision) || 0;
+        const cR = Number(cloudDb.revision) || 0;
+        if (inR >= cR) {
+          outgoing.revision = inR;
+          outgoing.updatedAt = incoming.updatedAt || outgoing.updatedAt;
+        } else {
+          outgoing.revision = cR + 1;
+          outgoing.updatedAt = new Date().toISOString();
         }
       }
-      const saved = await writeCloud(incoming);
-      return json(res, 200, { ok: true, db: saved?.db || incoming });
+      const saved = await writeCloud(outgoing);
+      return json(res, 200, { ok: true, db: saved?.db || outgoing });
     }
     return json(res, 405, { error: "Method not allowed" });
   } catch (err) {

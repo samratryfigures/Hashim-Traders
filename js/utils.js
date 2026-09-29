@@ -70,6 +70,56 @@ export function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+export function shouldKeepLocal(local, cloud) {
+  const lr = Number(local?.revision) || 0;
+  const cr = Number(cloud?.revision) || 0;
+  if (lr > cr) return true;
+  if (cr > lr) return false;
+  const lt = Date.parse(local?.updatedAt || 0) || 0;
+  const ct = Date.parse(cloud?.updatedAt || 0) || 0;
+  return lt > ct;
+}
+
+function mergeList(local, cloud) {
+  const map = new Map();
+  for (const row of cloud || []) {
+    if (row && row.id != null) map.set(String(row.id), row);
+  }
+  for (const row of local || []) {
+    if (row && row.id != null) map.set(String(row.id), row);
+  }
+  return [...map.values()];
+}
+
+/** Local rows win on the same id so a new sale is never dropped by an older cloud copy. */
+export function mergeDb(local, cloud) {
+  if (!cloud) return local;
+  if (!local) return cloud;
+  const localTime = Date.parse(local.updatedAt || 0) || 0;
+  const cloudTime = Date.parse(cloud.updatedAt || 0) || 0;
+  return {
+    ...cloud,
+    ...local,
+    products: mergeList(local.products, cloud.products),
+    invoices: mergeList(local.invoices, cloud.invoices),
+    purchases: mergeList(local.purchases, cloud.purchases),
+    customers: mergeList(local.customers, cloud.customers),
+    suppliers: mergeList(local.suppliers, cloud.suppliers),
+    payments: mergeList(local.payments, cloud.payments),
+    returns: mergeList(local.returns, cloud.returns),
+    expenses: mergeList(local.expenses, cloud.expenses),
+    settings:
+      (local.invoices?.length || local.products?.length || local.purchases?.length
+        ? local.settings
+        : cloud.settings) ||
+      local.settings ||
+      cloud.settings,
+    version: 2,
+    revision: Math.max(Number(local.revision) || 0, Number(cloud.revision) || 0),
+    updatedAt: localTime >= cloudTime ? local.updatedAt : cloud.updatedAt,
+  };
+}
+
 export function debounce(fn, ms) {
   let t;
   const wrapped = (...args) => {

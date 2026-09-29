@@ -177,9 +177,49 @@ function githubPath() {
   return process.env.GITHUB_DATA_PATH || "data/live.json";
 }
 
-async function readGithubDb() {
+function githubDataBranch() {
+  return process.env.GITHUB_DATA_BRANCH || "live-data";
+}
+
+function contentsUrl(ref) {
   const url = `https://api.github.com/repos/${githubRepo()}/contents/${githubPath()}`;
-  const res = await fetch(url, { headers: await githubHeaders() });
+  return ref ? `${url}?ref=${encodeURIComponent(ref)}` : url;
+}
+
+async function githubApi(pathname, opts = {}) {
+  const headers = { ...(await githubHeaders()), ...(opts.headers || {}) };
+  const res = await fetch(`https://api.github.com/repos/${githubRepo()}${pathname}`, { ...opts, headers });
+  let data = null;
+  const text = await res.text();
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { raw: text };
+  }
+  return { res, data };
+}
+
+async function ensureDataBranch() {
+  const branch = githubDataBranch();
+  try {
+    const existing = await githubApi(`/git/ref/heads/${branch}`);
+    if (existing.res.ok) return branch;
+    const main = await githubApi("/git/ref/heads/main");
+    if (!main.res.ok) return "main";
+    const created = await githubApi("/git/refs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: main.data.object.sha }),
+    });
+    if (created.res.ok || created.res.status === 422) return branch;
+  } catch (err) {
+    console.error("ensureDataBranch", err);
+  }
+  return "main";
+}
+
+async function readGithubFile(ref) {
+  const res = await fetch(contentsUrl(ref), { headers: await githubHeaders() });
   if (res.status === 404) return { empty: true, db: null };
   if (!res.ok) throw new Error("GitHub read failed: " + res.status);
   const meta = await res.json();
@@ -190,33 +230,201 @@ async function readGithubDb() {
   return { empty, db, sha: meta.sha };
 }
 
-async function writeGithubDb(db) {
-  const url = `https://api.github.com/repos/${githubRepo()}/contents/${githubPath()}`;
+async function readGithubDb() {
+  try {
+    const fromBranch = await readGithubFile(githubDataBranch());
+    if (!fromBranch.empty || fromBranch.db) return fromBranch;
+  } catch {
+    /* fall back to main */
+  }
+  return readGithubFile("main");
+}
+
+async function writeGithubDb(db, attempt = 0) {
+  const branch = await ensureDataBranch();
   const headers = await githubHeaders();
   let sha;
-  const cur = await fetch(url, { headers });
+  let current = null;
+  const cur = await fetch(contentsUrl(branch), { headers });
   if (cur.ok) {
     const meta = await cur.json();
     sha = meta.sha;
+    try {
+      const raw = Buffer.from(String(meta.content || "").replace(/\n/g, ""), "base64").toString("utf8");
+      current = raw ? JSON.parse(raw) : null;
+    } catch {
+      current = null;
+    }
+  } else if (cur.status === 404) {
+    const fallback = await readGithubFile("main");
+    current = fallback.db;
   }
-  const content = Buffer.from(JSON.stringify(db)).toString("base64");
-  const res = await fetch(url, {
+  const outgoing = current ? mergeDb(db, current) : db;
+  const content = Buffer.from(JSON.stringify(outgoing)).toString("base64");
+  const res = await fetch(`https://api.github.com/repos/${githubRepo()}/contents/${githubPath()}`, {
     method: "PUT",
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({
       message: "HASHMI TRADERS live books",
       content,
       sha,
+      branch,
     }),
   });
+  if (res.status === 409 && attempt < 5) {
+    return writeGithubDb(db, attempt + 1);
+  }
   if (!res.ok) {
     const err = await res.text();
     throw new Error("GitHub write failed: " + res.status + " " + err.slice(0, 200));
   }
-  return { ok: true, db };
+  return { ok: true, db: outgoing };
+}
+
+const SHOP_MARKER = "HASHMI_BUILD pos15";
+let shopPublish = { checked: 0, ok: false };
+
+const SHOP_STATIC = [
+  "index.html",
+  "css/style.css",
+  "js/app.js",
+  "js/pos.js",
+  "js/sync.js",
+  "js/store.js",
+  "js/forms.js",
+  "js/ui.js",
+  "js/utils.js",
+  "js/compute.js",
+  "js/print.js",
+  "js/migrate.js",
+];
+
+function shopOrigin() {
+  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+  if (host) return "https://" + String(host).replace(/^https?:\/\//, "");
+  return "https://hashmi-traders-lyart.vercel.app";
+}
+
+async function collectShopFiles() {
+  const files = [];
+  const origin = shopOrigin();
+  for (const rel of SHOP_STATIC) {
+    const res = await fetch(origin + "/" + rel + "?v=pos15", { cache: "no-store" });
+    if (!res.ok) continue;
+    files.push({ path: rel, content: await res.text() });
+  }
+  const apiDir = __dirname;
+  for (const name of fs.readdirSync(apiDir)) {
+    const full = path.join(apiDir, name);
+    if (!fs.statSync(full).isFile()) continue;
+    files.push({ path: "api/" + name, content: fs.readFileSync(full, "utf8") });
+  }
+  const vercelJson = path.join(apiDir, "..", "vercel.json");
+  if (fs.existsSync(vercelJson)) {
+    files.push({ path: "vercel.json", content: fs.readFileSync(vercelJson, "utf8") });
+  }
+  return files;
+}
+
+async function publishShopIfStale() {
+  if (!process.env.GITHUB_TOKEN) return;
+  if (shopPublish.ok && Date.now() - shopPublish.checked < 10 * 60 * 1000) return;
+  shopPublish.checked = Date.now();
+  try {
+    const headers = await githubHeaders();
+    const indexRes = await fetch(`https://api.github.com/repos/${githubRepo()}/contents/index.html?ref=main`, { headers });
+    if (indexRes.ok) {
+      const meta = await indexRes.json();
+      const html = Buffer.from(String(meta.content || "").replace(/\n/g, ""), "base64").toString("utf8");
+      if (html.includes(SHOP_MARKER)) {
+        shopPublish.ok = true;
+        return;
+      }
+    }
+    const ref = await githubApi("/git/ref/heads/main");
+    if (!ref.res.ok) return;
+    const commit = await githubApi(`/git/commits/${ref.data.object.sha}`);
+    if (!commit.res.ok) return;
+    const files = await collectShopFiles();
+    if (!files.some((f) => f.path === "index.html" && f.content.includes(SHOP_MARKER))) return;
+    const treeRes = await githubApi("/git/trees", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        base_tree: commit.data.tree.sha,
+        tree: files.map((f) => ({ path: f.path, mode: "100644", type: "blob", content: f.content })),
+      }),
+    });
+    if (!treeRes.res.ok) {
+      console.error("publish tree", treeRes.res.status, treeRes.data);
+      return;
+    }
+    const next = await githubApi("/git/commits", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: "HASHMI TRADERS shop v15",
+        tree: treeRes.data.sha,
+        parents: [ref.data.object.sha],
+      }),
+    });
+    if (!next.res.ok) {
+      console.error("publish commit", next.res.status, next.data);
+      return;
+    }
+    const patched = await githubApi("/git/refs/heads/main", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sha: next.data.sha }),
+    });
+    shopPublish.ok = patched.res.ok;
+    if (!patched.res.ok) console.error("publish ref", patched.res.status, patched.data);
+  } catch (err) {
+    console.error("publishShopIfStale", err);
+  }
+}
+
+function mergeList(local, cloud) {
+  const map = new Map();
+  for (const row of cloud || []) {
+    if (row && row.id != null) map.set(String(row.id), row);
+  }
+  for (const row of local || []) {
+    if (row && row.id != null) map.set(String(row.id), row);
+  }
+  return [...map.values()];
+}
+
+function mergeDb(local, cloud) {
+  if (!cloud) return local;
+  if (!local) return cloud;
+  const localTime = Date.parse(local.updatedAt || 0) || 0;
+  const cloudTime = Date.parse(cloud.updatedAt || 0) || 0;
+  return {
+    ...cloud,
+    ...local,
+    products: mergeList(local.products, cloud.products),
+    invoices: mergeList(local.invoices, cloud.invoices),
+    purchases: mergeList(local.purchases, cloud.purchases),
+    customers: mergeList(local.customers, cloud.customers),
+    suppliers: mergeList(local.suppliers, cloud.suppliers),
+    payments: mergeList(local.payments, cloud.payments),
+    returns: mergeList(local.returns, cloud.returns),
+    expenses: mergeList(local.expenses, cloud.expenses),
+    settings:
+      (local.invoices?.length || local.products?.length || local.purchases?.length
+        ? local.settings
+        : cloud.settings) ||
+      local.settings ||
+      cloud.settings,
+    version: 2,
+    revision: Math.max(Number(local.revision) || 0, Number(cloud.revision) || 0),
+    updatedAt: localTime >= cloudTime ? local.updatedAt : cloud.updatedAt,
+  };
 }
 
 async function readCloud() {
+  if (process.env.GITHUB_TOKEN) await publishShopIfStale();
   if (process.env.APPS_SCRIPT_URL) {
     const data = await gasFetch("read");
     return data;
@@ -228,6 +436,7 @@ async function readCloud() {
 }
 
 async function writeCloud(db) {
+  if (process.env.GITHUB_TOKEN) await publishShopIfStale();
   if (process.env.APPS_SCRIPT_URL) {
     return gasFetch("write", db);
   }
@@ -247,4 +456,5 @@ module.exports = {
   readBody,
   readCloud,
   writeCloud,
+  mergeDb,
 };

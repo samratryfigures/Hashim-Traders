@@ -1,6 +1,7 @@
 import { store, persistLocal, setDb, payloadInfo } from "./store.js";
 import { emptyDb, cloneDb, normalizeDb } from "./migrate.js";
-import { toast, confirmDialog } from "./ui.js";
+import { toast } from "./ui.js";
+import { shouldKeepLocal, mergeDb } from "./utils.js";
 
 const badgeEl = () => document.getElementById("sync-badge");
 
@@ -56,30 +57,36 @@ export async function loadFromCloud() {
     if (!res.ok) throw new Error(data.error || "Cloud read failed");
 
     const cloudEmpty = !data.db || data.empty;
-    const localHas = (store.db.invoices?.length || store.db.products?.length || store.db.customers?.length) > 0;
+    const localHas =
+      (store.db.invoices?.length ||
+        store.db.products?.length ||
+        store.db.customers?.length ||
+        store.db.purchases?.length ||
+        store.db.suppliers?.length ||
+        store.db.payments?.length ||
+        store.db.expenses?.length) > 0;
 
     if (cloudEmpty && localHas) {
-      const upload = await confirmDialog({
-        title: "Upload local data?",
-        message: "The Google Sheet is empty and this device has records. Upload them to the cloud?",
-        ok: "Upload",
-        danger: false,
-      });
-      if (upload) {
-        await pushCloud(store.db, { force: true });
-        store.loadedRevision = store.db.revision;
-        store.loadedUpdatedAt = store.db.updatedAt;
-        setBadge("saved", "Saved ✓");
-        return { auth: true, uploaded: true };
-      }
+      await pushCloud(store.db, { force: true });
+      store.loadedRevision = store.db.revision;
+      store.loadedUpdatedAt = store.db.updatedAt;
+      setBadge("saved", "Saved ✓");
+      return { auth: true, uploaded: true };
     }
 
     if (!cloudEmpty && data.db) {
       const cloud = normalizeDb(data.db);
-      store.loadedRevision = cloud.revision;
-      store.loadedUpdatedAt = cloud.updatedAt;
-      setDb(cloud, { bump: false, sync: false });
+      const merged = normalizeDb(mergeDb(store.db, cloud));
+      const keepPushing = shouldKeepLocal(store.db, cloud) || hasLocalOnlyRows(store.db, cloud);
+      store.loadedRevision = merged.revision;
+      store.loadedUpdatedAt = merged.updatedAt;
+      setDb(merged, { bump: keepPushing, sync: false });
       persistLocal();
+      if (keepPushing) {
+        await pushCloud(store.db, { force: true });
+        setBadge("saved", "Saved ✓");
+        return { auth: true, keptLocal: true };
+      }
     }
 
     setBadge("saved", "Saved ✓");
@@ -115,9 +122,9 @@ export async function pushCloud(db, { force = false } = {}) {
     });
     if (res.status === 409) {
       store.conflict = data;
-      setBadge("conflict", "Conflict");
+      setBadge("conflict", "Merging…");
       await handleConflict(data);
-      return false;
+      return true;
     }
     if (res.status === 401) {
       location.reload();
@@ -125,8 +132,10 @@ export async function pushCloud(db, { force = false } = {}) {
     }
     if (!res.ok) throw new Error(data.error || "Save failed");
     if (data.db) {
-      store.loadedRevision = data.db.revision;
-      store.loadedUpdatedAt = data.db.updatedAt;
+      const merged = normalizeDb(mergeDb(store.db, data.db));
+      store.loadedRevision = merged.revision;
+      store.loadedUpdatedAt = merged.updatedAt;
+      setDb(merged, { bump: false, sync: false });
     } else {
       store.loadedRevision = db.revision;
       store.loadedUpdatedAt = db.updatedAt;
@@ -141,30 +150,30 @@ export async function pushCloud(db, { force = false } = {}) {
   }
 }
 
-async function handleConflict(data) {
-  const wrapChoice = await confirmDialog({
-    title: "Cloud data is newer",
-    message: "Another device saved after this page loaded. Reload cloud data (discard local unsynced edits) or overwrite the cloud with this device?",
-    ok: "Reload cloud",
-    danger: false,
-  });
-  if (wrapChoice) {
-    if (data.db) setDb(normalizeDb(data.db), { bump: false });
-    else await loadFromCloud();
-    store.conflict = null;
-    setBadge("saved", "Saved ✓");
-    toast("Loaded latest cloud data", { type: "ok" });
-    return;
+function hasLocalOnlyRows(local, cloud) {
+  const keys = ["invoices", "purchases", "products", "customers", "suppliers", "payments", "returns", "expenses"];
+  for (const key of keys) {
+    const cloudIds = new Set((cloud?.[key] || []).map((row) => String(row.id)));
+    if ((local?.[key] || []).some((row) => row && row.id != null && !cloudIds.has(String(row.id)))) return true;
   }
-  const overwrite = await confirmDialog({
-    title: "Overwrite cloud?",
-    message: "This device will replace the Google Sheet. Do this only if you are sure this copy is correct.",
-    ok: "Overwrite cloud",
-    danger: true,
-  });
-  if (overwrite) {
-    await pushCloud(store.db, { force: true });
+  return false;
+}
+
+let mergingConflict = false;
+async function handleConflict(data) {
+  if (mergingConflict) return;
+  mergingConflict = true;
+  try {
+    const cloud = data?.db ? normalizeDb(data.db) : null;
+    const merged = normalizeDb(mergeDb(store.db, cloud));
+    setDb(merged, { bump: true, sync: false });
     store.conflict = null;
+    const ok = await pushCloud(store.db, { force: true });
+    if (ok) {
+      setBadge("saved", "Saved ✓");
+    }
+  } finally {
+    mergingConflict = false;
   }
 }
 

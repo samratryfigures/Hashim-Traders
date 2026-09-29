@@ -13,9 +13,10 @@ import {
   productHasTransactions,
   partyHasTransactions,
   paidAmount,
+  dueAmount,
   wouldGoNegative,
 } from "./compute.js";
-import { toast, bindTable, badge, confirmDialog, openModal } from "./ui.js";
+import { toast, bindTable, badge, confirmDialog, openModal, isEditingField } from "./ui.js";
 import {
   openDocumentForm,
   openPaymentForm,
@@ -25,8 +26,8 @@ import {
   openExpenseForm,
   tryDelete,
 } from "./forms.js";
-import { invoiceHtml, creditNoteHtml, statementHtml, printHtml } from "./print.js";
-import { bindPOS, refreshPOS } from "./pos.js";
+import { invoiceHtml, creditNoteHtml, statementHtml, printHtml, invoiceDetailHtml } from "./print.js";
+import { bindPOS, refreshPOS, startSaleFor } from "./pos.js";
 import { login, logout, checkSession, loadFromCloud, syncHandler, pushCloud } from "./sync.js";
 import { normalizeDb } from "./migrate.js";
 
@@ -190,21 +191,86 @@ function renderProducts() {
 }
 
 function invoiceRows() {
-  return [...store.db.invoices].reverse().map((inv) => ({
-    ...inv,
-    customer: partyName(store.db, "customer", inv.customerId),
-    status: payStatus(inv),
-    paid: paidAmount(inv),
-    _clickable: true,
-  }));
+  return [...store.db.invoices].reverse().map((inv) => {
+    const items = inv.items || [];
+    const itemList = items.map((it) => `${it.name} × ${it.qty} ${it.unit || ""}`.trim()).join(", ");
+    const qty = items.reduce((a, it) => a + Number(it.qty || 0), 0);
+    return {
+      ...inv,
+      customer: partyName(store.db, "customer", inv.customerId),
+      status: payStatus(inv),
+      paid: paidAmount(inv),
+      due: dueAmount(inv),
+      method: inv.payment?.method || "",
+      itemsText: itemList,
+      qty,
+      _clickable: true,
+    };
+  });
 }
 
 function renderSales() {
   refreshPOS();
   bindTable($("sales-table"), {
-    searchPlaceholder: "Search invoices…",
+    searchPlaceholder: "Search last sales…",
     empty: "No sales yet",
-    emptyHint: "Completed sales show here. Use Point of Sale above for a new bill.",
+    emptyHint: "Save on POS. Full detail is under Invoices.",
+    sort: { key: "date", dir: "desc" },
+    pageSize: 8,
+    columns: [
+      { key: "date", label: "Date" },
+      { key: "no", label: "Invoice" },
+      { key: "customer", label: "Customer" },
+      { key: "total", label: "Total", render: (r) => money(r.total) },
+      { key: "status", label: "Status", render: (r) => badge(r.status) },
+    ],
+    rows: invoiceRows,
+    onRowClick: (r) => openInvoice(r.id),
+    searchKeys: ["date", "no", "customer", "status"],
+    actions: [
+      { id: "open", label: "Open", onClick: (r) => openInvoice(r.id) },
+      { id: "print", label: "Print", onClick: (r) => printDoc(r, "sale") },
+    ],
+  });
+}
+
+let invoiceFocusId = null;
+
+function openInvoice(id) {
+  invoiceFocusId = id;
+  showPage("invoices");
+}
+
+function renderInvoiceDetail(id) {
+  const host = $("invoice-detail");
+  if (!host) return;
+  const doc = store.db.invoices.find((x) => x.id === id);
+  if (!doc) {
+    host.innerHTML = `<div class="empty-state"><strong>Select an invoice</strong><p>Choose a bill on the left to read every field.</p></div>`;
+    return;
+  }
+  invoiceFocusId = doc.id;
+  host.innerHTML = `
+    <div class="view-toolbar">
+      <button type="button" class="btn sm" data-inv-edit>Edit</button>
+      <button type="button" class="btn sm" data-inv-print>Print A4</button>
+      <button type="button" class="btn sm" data-inv-thermal>Print 80mm</button>
+      <button type="button" class="btn sm ghost" data-inv-del>Delete</button>
+    </div>
+    ${invoiceDetailHtml(doc, { kind: "sale" })}`;
+  host.querySelector("[data-inv-edit]").onclick = () => openDocumentForm({ kind: "sale", existing: doc });
+  host.querySelector("[data-inv-print]").onclick = () => printHtml(invoiceHtml(doc, { kind: "sale" }));
+  host.querySelector("[data-inv-thermal]").onclick = () => printHtml(invoiceHtml(doc, { kind: "sale", thermal: true }));
+  host.querySelector("[data-inv-del]").onclick = () => tryDelete("invoice", doc);
+}
+
+function renderInvoices() {
+  const list = invoiceRows();
+  if (!invoiceFocusId && list[0]) invoiceFocusId = list[0].id;
+  bindTable($("invoice-table"), {
+    searchPlaceholder: "Search invoices, customer, product…",
+    empty: "No invoices yet",
+    emptyHint: "Use POS to save a sale. Each saved bill appears here with full detail.",
     chips: [
       { id: "all", label: "All" },
       { id: "paid", label: "Paid" },
@@ -217,18 +283,30 @@ function renderSales() {
       { key: "date", label: "Date" },
       { key: "no", label: "Invoice" },
       { key: "customer", label: "Customer" },
+      { key: "itemsText", label: "Products" },
+      { key: "qty", label: "Qty" },
+      { key: "subtotal", label: "Subtotal", render: (r) => money(r.subtotal) },
+      { key: "discount", label: "Disc.", render: (r) => money(r.discount) },
       { key: "total", label: "Total", render: (r) => money(r.total) },
       { key: "paid", label: "Paid", render: (r) => money(r.paid) },
+      { key: "due", label: "Due", render: (r) => money(r.due) },
+      { key: "method", label: "Pay" },
       { key: "status", label: "Status", render: (r) => badge(r.status) },
     ],
     rows: invoiceRows,
+    onRowClick: (r) => {
+      invoiceFocusId = r.id;
+      renderInvoiceDetail(r.id);
+    },
+    searchKeys: ["date", "no", "customer", "itemsText", "status", "method"],
     actions: [
-      { id: "view", label: "View", onClick: (r) => viewDoc(r, "sale") },
+      { id: "view", label: "View", onClick: (r) => renderInvoiceDetail(r.id) },
       { id: "print", label: "Print", onClick: (r) => printDoc(r, "sale") },
       { id: "edit", label: "Edit", onClick: (r) => openDocumentForm({ kind: "sale", existing: store.db.invoices.find((x) => x.id === r.id) }) },
       { id: "del", label: "Delete", onClick: (r) => tryDelete("invoice", r) },
     ],
   });
+  renderInvoiceDetail(invoiceFocusId);
 }
 
 function renderPurchases() {
@@ -263,26 +341,26 @@ function renderPurchases() {
       { id: "edit", label: "Edit", onClick: (r) => openDocumentForm({ kind: "purchase", existing: store.db.purchases.find((x) => x.id === r.id) }) },
       { id: "del", label: "Delete", onClick: (r) => tryDelete("purchase", r) },
     ],
+    onRowClick: (r) => viewDoc(r, "purchase"),
   });
 }
 
 function viewDoc(row, kind) {
   const doc = kind === "sale" ? store.db.invoices.find((x) => x.id === row.id) : store.db.purchases.find((x) => x.id === row.id);
   if (!doc) return;
+  if (kind === "sale") {
+    openInvoice(doc.id);
+    return;
+  }
   openModal({
     title: doc.no,
     width: "modal-wide",
     html: `<div class="view-toolbar">
-        <label class="switch"><input type="checkbox" id="thermal-tog"> 80mm receipt</label>
         <button type="button" class="btn primary" id="do-print">Print</button>
       </div>
-      <div id="inv-preview">${invoiceHtml(doc, { kind })}</div>`,
+      ${invoiceDetailHtml(doc, { kind })}`,
     onOpen: (wrap) => {
-      const tog = wrap.querySelector("#thermal-tog");
-      tog.onchange = () => {
-        wrap.querySelector("#inv-preview").innerHTML = invoiceHtml(doc, { kind, thermal: tog.checked });
-      };
-      wrap.querySelector("#do-print").onclick = () => printHtml(invoiceHtml(doc, { kind, thermal: tog.checked }));
+      wrap.querySelector("#do-print").onclick = () => printHtml(invoiceHtml(doc, { kind }));
     },
   });
 }
@@ -491,7 +569,7 @@ function renderKhata() {
               entries.length
                 ? entries
                     .map(
-                      (e) => `<tr class="clickable" data-src='${JSON.stringify(e.source || {})}'>
+                      (e) => `<tr class="clickable" data-src="${encodeURIComponent(JSON.stringify(e.source || {}))}">
                         <td>${e.date}</td><td>${e.type}</td><td>${escapeHtml(e.ref)}</td><td>${escapeHtml(e.details)}</td>
                         <td>${e.debit ? money(e.debit) : ""}</td><td>${e.credit ? money(e.credit) : ""}</td>
                         <td>${money(e.balance)}</td><td>${escapeHtml(e.method)}</td></tr>`
@@ -507,18 +585,24 @@ function renderKhata() {
     khataCtx = null;
     showPage("khata");
   };
-  $("khata-sale").onclick = () =>
-    openDocumentForm({ kind: kind === "customer" ? "sale" : "purchase", partyId: id });
+  $("khata-sale").onclick = () => {
+    if (kind === "customer") {
+      startSaleFor(id);
+      showPage("sales");
+      return;
+    }
+    openDocumentForm({ kind: "purchase", partyId: id });
+  };
   $("khata-pay").onclick = () => openPaymentForm({ partyType: kind, partyId: id });
   $("khata-print").onclick = () => printHtml(statementHtml(kind, id, range));
   $("khata-from").onchange = renderKhata;
   $("khata-to").onchange = renderKhata;
   $("khata").querySelectorAll("tr[data-src]").forEach((tr) => {
     tr.onclick = () => {
-      const src = JSON.parse(tr.dataset.src || "{}");
+      const src = JSON.parse(decodeURIComponent(tr.dataset.src || "%7B%7D"));
       if (src.kind === "invoice") {
         const doc = store.db.invoices.find((x) => x.id === src.id);
-        if (doc) viewDoc(doc, "sale");
+        if (doc) openInvoice(doc.id);
       }
       if (src.kind === "purchase") {
         const doc = store.db.purchases.find((x) => x.id === src.id);
@@ -558,6 +642,7 @@ function renderPage(id) {
   if (id === "dashboard") renderDashboard();
   if (id === "products") renderProducts();
   if (id === "sales") renderSales();
+  if (id === "invoices") renderInvoices();
   if (id === "purchases") renderPurchases();
   if (id === "expenses") renderExpenses();
   if (id === "customers") renderPeople("customer");
@@ -570,9 +655,20 @@ function renderPage(id) {
 }
 
 function render() {
-  const active = document.querySelector(".page.active")?.id || "dashboard";
+  const active = document.querySelector(".page.active")?.id || "sales";
   $("biz-title").textContent = store.db.settings.businessName || "HASHMI TRADERS";
   renderPage(active);
+}
+
+let uiDirty = false;
+let uiTimer = 0;
+function scheduleRender() {
+  if (isEditingField() || document.querySelector(".modal-backdrop")) {
+    uiDirty = true;
+    return;
+  }
+  uiDirty = false;
+  render();
 }
 
 pages.render = render;
@@ -593,6 +689,13 @@ function bindChrome() {
   };
   $("sync-now").onclick = () => pushCloud(store.db);
   bindPOS();
+  $("top-invoices") && ($("top-invoices").onclick = () => showPage("invoices"));
+  $("goto-invoices") && ($("goto-invoices").onclick = () => showPage("invoices"));
+  $("new-invoice-pos") && ($("new-invoice-pos").onclick = () => showPage("sales"));
+  document.addEventListener("ht:invoice-saved", (e) => {
+    if (e.detail?.id) invoiceFocusId = e.detail.id;
+    showPage("invoices");
+  });
   $("new-purchase").onclick = () => openDocumentForm({ kind: "purchase" });
   $("new-product").onclick = () => openProductForm();
   $("new-expense").onclick = () => openExpenseForm();
@@ -634,10 +737,19 @@ function bindChrome() {
 
   document.addEventListener("keydown", (e) => {
     const tag = document.activeElement?.tagName;
-    if (e.key === "Escape") document.querySelector(".modal-backdrop")?.remove();
+    if (e.key === "Escape") {
+      const stack = document.querySelectorAll(".modal-backdrop");
+      stack[stack.length - 1]?.remove();
+    }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
-      const btn = document.querySelector(".modal .btn.primary");
+      const page = document.querySelector(".page.active")?.id;
+      if (page === "sales") {
+        document.getElementById("pos-complete")?.click();
+        return;
+      }
+      const btns = document.querySelectorAll(".modal .btn.primary");
+      const btn = btns[btns.length - 1];
       if (btn) btn.click();
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
@@ -646,6 +758,10 @@ function bindChrome() {
     if (e.key.toLowerCase() === "n" && tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") {
       const p = document.querySelector(".page.active")?.id;
       if (p === "sales") document.getElementById("pos-search")?.focus();
+      if (p === "invoices") {
+        showPage("sales");
+        document.getElementById("pos-search")?.focus();
+      }
       if (p === "purchases") openDocumentForm({ kind: "purchase" });
       if (p === "products") openProductForm();
       if (p === "expenses") openExpenseForm();
@@ -660,7 +776,22 @@ function showApp() {
   if (!window.__htBound) {
     window.__htBound = true;
     bindChrome();
-    subscribe(render);
+    subscribe(scheduleRender);
+    document.addEventListener("focusout", (e) => {
+      const next = e.relatedTarget;
+      if (next && typeof next.closest === "function") {
+        if (next.matches("input, textarea, select, button") || next.closest(".prod-menu, .modal-backdrop, .pos-pay, #pos-lines")) {
+          return;
+        }
+      }
+      clearTimeout(uiTimer);
+      uiTimer = setTimeout(() => {
+        if (uiDirty && !isEditingField() && !document.querySelector(".modal-backdrop")) {
+          uiDirty = false;
+          render();
+        }
+      }, 500);
+    });
   }
   render();
 }

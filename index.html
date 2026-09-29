@@ -3,8 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <title>HASHMI TRADERS — Business Manager</title>
-  <link rel="stylesheet" href="css/style.css">
+  <!-- HASHMI_BUILD pos15 -->
+  <link rel="stylesheet" href="css/style.css?v=pos15">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -26,9 +28,10 @@
       <button type="button" class="icon-btn menu" id="menu-btn" aria-label="Menu">☰</button>
       <div>
         <h1 id="biz-title">HASHMI TRADERS</h1>
-        <span class="sub">Business Manager · Rs · Pakistan</span>
+        <span class="sub">Invoices · shop v15 · Rs · Pakistan</span>
       </div>
       <div class="top-actions">
+        <button type="button" class="btn sm primary" id="top-invoices">Invoices</button>
         <span id="sync-badge" class="sync-badge" data-state="idle">Saved ✓</span>
         <button type="button" class="btn sm ghost" id="sync-now">Sync now</button>
         <button type="button" class="icon-btn" id="theme-btn" aria-label="Theme">◐</button>
@@ -39,8 +42,9 @@
       <nav id="sidebar" class="sidebar no-print">
         <div class="brand">HASHMI TRADERS</div>
         <div id="nav">
-          <button type="button" class="active" data-page="dashboard">Dashboard</button>
-          <button type="button" data-page="sales">POS / Sales</button>
+          <button type="button" data-page="dashboard">Dashboard</button>
+          <button type="button" class="active" data-page="sales">POS</button>
+          <button type="button" data-page="invoices">Invoices</button>
           <button type="button" data-page="products">Products</button>
           <button type="button" data-page="customers">Customers</button>
           <button type="button" data-page="purchases">Purchases</button>
@@ -54,7 +58,7 @@
         </div>
       </nav>
       <main>
-        <section id="dashboard" class="page active">
+        <section id="dashboard" class="page">
           <div class="page-head"><h2>Dashboard</h2></div>
           <div id="dash-filter"></div>
           <div class="cards" id="dash-cards"></div>
@@ -67,19 +71,36 @@
           <div class="panel" id="product-table"></div>
         </section>
 
-        <section id="sales" class="page">
+        <section id="sales" class="page active">
           <h2 class="pos-title">Point of Sale</h2>
           <div class="pos-grid">
             <div class="pos-cart">
+              <div class="pos-meta">
+                <label>Date
+                  <input id="pos-date" type="date" required>
+                </label>
+                <label>Invoice
+                  <input id="pos-no" readonly>
+                </label>
+                <label class="pos-cust-field">Customer
+                  <div class="row-split">
+                    <select id="pos-customer"></select>
+                    <button type="button" class="btn sm" id="pos-add-cust">+</button>
+                  </div>
+                </label>
+              </div>
               <div class="pos-search-wrap">
-                <input id="pos-search" type="search" placeholder="Search product or barcode…" autocomplete="off">
+                <input id="pos-search" type="search" placeholder="Search product, category, or code…" autocomplete="off">
                 <div id="pos-hits" class="pos-hits" hidden></div>
               </div>
+              <div id="pos-catalog" class="pos-catalog"></div>
               <div class="table-scroll">
                 <table class="pos-table">
                   <thead>
                     <tr>
+                      <th>Sr</th>
                       <th>Product</th>
+                      <th>Category</th>
                       <th>Qty</th>
                       <th>Unit</th>
                       <th>Price</th>
@@ -90,38 +111,56 @@
                   <tbody id="pos-lines"></tbody>
                 </table>
               </div>
+              <div class="pos-actions pos-actions-sticky">
+                <button type="button" class="btn pos-complete" id="pos-complete">Save</button>
+                <button type="button" class="btn pos-print" id="pos-save-print">Print</button>
+              </div>
+              <p class="field-error" id="pos-error" hidden></p>
+              <p class="muted" id="pos-save-hint">Saved invoices open under <strong>Invoices</strong> with every line, payment, and khata figure.</p>
             </div>
             <aside class="pos-pay">
-              <label>Customer
-                <div class="row-split">
-                  <select id="pos-customer"></select>
-                  <button type="button" class="btn sm" id="pos-add-cust">+</button>
-                </div>
-              </label>
-              <label>Discount
-                <input id="pos-discount" type="number" min="0" step="any" value="0">
-              </label>
-              <label>Paid
-                <input id="pos-paid" type="number" min="0" step="any" value="0">
-              </label>
-              <label>Payment
-                <select id="pos-method">
-                  <option value="cash">cash</option>
-                  <option value="credit">udhaar</option>
-                  <option value="bank">bank</option>
-                  <option value="advance">advance</option>
-                </select>
-              </label>
-              <div class="pos-total-block">
-                <div>Total: <strong id="pos-total">Rs 0</strong></div>
-                <div id="pos-due" class="muted"></div>
+              <div class="pos-totals-list">
+                <div><span>Subtotal</span><strong id="pos-subtotal">Rs 0</strong></div>
+                <label>Discount
+                  <input id="pos-discount" type="number" min="0" step="any" value="0">
+                </label>
+                <div class="pos-total-block">Total <strong id="pos-total">Rs 0</strong></div>
+                <label>Paid
+                  <input id="pos-paid" type="number" min="0" step="any" value="0">
+                </label>
+                <label>Payment
+                  <select id="pos-method">
+                    <option value="cash">Cash</option>
+                    <option value="credit">Udhaar (khata)</option>
+                    <option value="bank">Bank</option>
+                    <option value="advance">Advance</option>
+                  </select>
+                </label>
+                <div><span>Balance</span><strong id="pos-due">Rs 0</strong></div>
               </div>
-              <button type="button" class="btn pos-complete" id="pos-complete">Complete Sale</button>
+              <button type="button" class="btn pos-complete" id="pos-complete-side">Save</button>
+              <button type="button" class="btn pos-print" id="pos-print-side">Print</button>
+              <button type="button" class="btn ghost" id="pos-reset">Reset</button>
             </aside>
           </div>
           <div class="panel">
-            <h3>Today’s bills</h3>
+            <div class="page-head" style="margin:0 0 8px;padding:0">
+              <h3>Last sales on this counter</h3>
+              <button type="button" class="btn sm" id="goto-invoices">All invoices</button>
+            </div>
             <div id="sales-table"></div>
+          </div>
+        </section>
+
+        <section id="invoices" class="page">
+          <div class="page-head">
+            <h2>Invoices</h2>
+            <button type="button" class="btn primary" id="new-invoice-pos">New sale (POS)</button>
+          </div>
+          <p class="muted">Every saved POS or edited sale bill is listed here. Open a row to see customer, each product line, payment, returns, and khata.</p>
+          <div class="invoice-layout">
+            <div class="panel" id="invoice-table"></div>
+            <div class="panel" id="invoice-detail"><div class="empty-state"><strong>Select an invoice</strong><p>Choose a bill on the left to read every field.</p></div></div>
           </div>
         </section>
 
@@ -197,6 +236,6 @@
   </div>
 
   <div id="print-root" class="print-root"></div>
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=pos15"></script>
 </body>
 </html>
