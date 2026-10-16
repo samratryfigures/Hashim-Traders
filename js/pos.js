@@ -314,34 +314,19 @@ function paintTotals() {
 }
 
 function paintCart() {
+  hideProductTiles();
   fillCustomers();
   fillMeta();
   renderLines();
   paintTotals();
-  renderCatalog();
 }
 
-function renderCatalog() {
+function hideProductTiles() {
   const box = document.getElementById("pos-catalog");
-  if (!box) return;
-  const list = products().slice(0, 24);
-  if (!list.length) {
+  if (box) {
     box.innerHTML = "";
-    return;
+    box.hidden = true;
   }
-  box.innerHTML = list
-    .map((p) => {
-      const st = productStock(store.db, p.id);
-      return `<button type="button" class="pos-chip" data-id="${p.id}">
-        <strong>${escapeHtml(p.name)}</strong>
-        <span>${escapeHtml(p.category || "—")} · ${unitLabel(p.unit)}</span>
-        <span>${money(p.salePrice)} · stock ${st}</span>
-      </button>`;
-    })
-    .join("");
-  box.querySelectorAll(".pos-chip").forEach((b) => {
-    b.onclick = () => addProduct(b.dataset.id);
-  });
 }
 
 function searchHits(q) {
@@ -707,9 +692,9 @@ export function bindPOS() {
 export function refreshPOS() {
   if (!document.getElementById("pos-search")) return;
   paintTotals();
+  hideProductTiles();
   if (isEditingField()) return;
   fillCustomers();
   fillMeta();
-  renderCatalog();
   if (document.querySelector(".page.active")?.id === "sales") renderLines();
 }

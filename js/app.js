@@ -24,6 +24,7 @@ import {
   openProductForm,
   openPartyForm,
   openExpenseForm,
+  openOpeningKhataForm,
   tryDelete,
 } from "./forms.js";
 import { invoiceHtml, creditNoteHtml, statementHtml, printHtml, invoiceDetailHtml } from "./print.js";
@@ -545,6 +546,7 @@ function renderKhata() {
       <h2>${escapeHtml(name)} · Khata</h2>
       <div class="row-split">
         <button type="button" class="btn" id="khata-sale">${kind === "customer" ? "New sale" : "New purchase"}</button>
+        <button type="button" class="btn" id="khata-opening">Opening khata</button>
         <button type="button" class="btn" id="khata-pay">${kind === "customer" ? "Receive Payment" : "Make Payment"}</button>
         <button type="button" class="btn primary" id="khata-print">Print Statement</button>
       </div>
@@ -592,6 +594,11 @@ function renderKhata() {
       return;
     }
     openDocumentForm({ kind: "purchase", partyId: id });
+  };
+  $("khata-opening").onclick = () => {
+    const list = kind === "supplier" ? store.db.suppliers : store.db.customers;
+    const rec = list.find((p) => String(p.id) === String(id));
+    openPartyForm(kind, rec);
   };
   $("khata-pay").onclick = () => openPaymentForm({ partyType: kind, partyId: id });
   $("khata-print").onclick = () => printHtml(statementHtml(kind, id, range));
@@ -701,6 +708,7 @@ function bindChrome() {
   $("new-expense").onclick = () => openExpenseForm();
   $("new-customer").onclick = () => openPartyForm("customer");
   $("new-supplier").onclick = () => openPartyForm("supplier");
+  $("opening-supplier-khata") && ($("opening-supplier-khata").onclick = () => openOpeningKhataForm("supplier"));
   $("recv-pay").onclick = () => openPaymentForm({ partyType: "customer" });
   $("make-pay").onclick = () => openPaymentForm({ partyType: "supplier" });
   $("new-sret").onclick = () => openReturnForm({ type: "sale" });

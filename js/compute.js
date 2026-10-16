@@ -110,6 +110,25 @@ export function partyLedger(db, partyType, partyId, range = {}) {
   const entries = [];
   if (!partyId || partyId === WALK_IN) return { entries: [], opening: 0, closing: 0 };
 
+  const party = ((partyType === "supplier" ? db.suppliers : db.customers) || []).find((p) => String(p.id) === String(partyId));
+  const brought = num(party?.openingBalance);
+  if (brought) {
+    const d = String(party.openingDate || "2020-01-01").slice(0, 10);
+    const owe = brought > 0;
+    const amt = round2(Math.abs(brought));
+    pushEntry(entries, {
+      date: d,
+      type: "Opening",
+      ref: "BF",
+      details: party.openingNote || "Brought forward from old khata (no bill)",
+      debit: partyType === "customer" ? (owe ? amt : 0) : owe ? 0 : amt,
+      credit: partyType === "customer" ? (owe ? 0 : amt) : owe ? amt : 0,
+      method: "",
+      source: { kind: partyType, id: partyId },
+      sortKey: `${d}-0-opening`,
+    });
+  }
+
   if (partyType === "customer") {
     for (const inv of db.invoices || []) {
       if (inv.customerId !== partyId) continue;
@@ -316,11 +335,11 @@ export function ledgerSummary(db, partyType, partyId) {
   let returned = 0;
   for (const e of all) {
     if (partyType === "customer") {
-      if (e.type === "Invoice") billed += e.debit;
+      if (e.type === "Invoice" || e.type === "Opening") billed += e.debit;
       if (e.type === "Payment") paid += e.credit;
       if (e.type === "Return") returned += e.credit;
     } else {
-      if (e.type === "Invoice") billed += e.credit;
+      if (e.type === "Invoice" || e.type === "Opening") billed += e.credit;
       if (e.type === "Payment") paid += e.debit;
       if (e.type === "Return") returned += e.debit;
     }
@@ -457,6 +476,9 @@ export function chartSeries(db, range, kind) {
 }
 
 export function partyHasTransactions(db, type, id) {
+  const list = type === "customer" ? db.customers : db.suppliers;
+  const rec = (list || []).find((p) => String(p.id) === String(id));
+  if (num(rec?.openingBalance)) return true;
   if (type === "customer") {
     if ((db.invoices || []).some((i) => i.customerId === id)) return true;
     if ((db.payments || []).some((p) => p.partyType === "customer" && p.partyId === id)) return true;

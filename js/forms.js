@@ -899,6 +899,10 @@ export function openProductForm(existing, { onSaved, defaults } = {}) {
 }
 
 export function openPartyForm(kind, existing) {
+  const oweHint =
+    kind === "supplier"
+      ? "Amount you already owed this supplier from old books. Leave 0 if you are starting fresh. No purchase bill is created."
+      : "Amount this customer already owed you from old books. Leave 0 if you are starting fresh. No sale invoice is created.";
   const { close } = openModal({
     title: existing ? `Edit ${kind}` : `Add ${kind}`,
     html: `
@@ -906,6 +910,14 @@ export function openPartyForm(kind, existing) {
         <label>Name<input name="name" required value="${escapeHtml(existing?.name || "")}"></label>
         <label>Phone<input name="phone" value="${escapeHtml(existing?.phone || "")}"></label>
         <label class="full">Address<input name="address" value="${escapeHtml(existing?.address || "")}"></label>
+        <label>Opening khata (Rs)
+          <input type="number" step="any" name="openingBalance" value="${existing?.openingBalance ?? 0}">
+        </label>
+        <label>Opening as of
+          <input type="date" name="openingDate" value="${escapeHtml(existing?.openingDate || "")}">
+        </label>
+        <p class="muted full">${oweHint}</p>
+        <label class="full">Opening note<input name="openingNote" value="${escapeHtml(existing?.openingNote || "")}" placeholder="e.g. old register 30 Sep"></label>
         <div class="modal-actions full">
           <button type="button" class="btn ghost" data-close>Cancel</button>
           <button class="btn primary">Save</button>
@@ -916,10 +928,14 @@ export function openPartyForm(kind, existing) {
         e.preventDefault();
         const f = e.target;
         const rec = {
+          ...(existing || {}),
           id: existing?.id || uid(),
           name: f.name.value.trim(),
           phone: f.phone.value.trim(),
           address: f.address.value.trim(),
+          openingBalance: num(f.openingBalance.value),
+          openingDate: f.openingDate.value || "",
+          openingNote: f.openingNote.value.trim(),
           archived: existing?.archived || false,
         };
         commit((db) => {
@@ -930,6 +946,65 @@ export function openPartyForm(kind, existing) {
         });
         close();
         toast("Saved", { type: "ok" });
+      };
+    },
+  });
+}
+
+export function openOpeningKhataForm(kind = "supplier") {
+  const list = kind === "supplier" ? store.db.suppliers : store.db.customers;
+  const options =
+    `<option value="">— New name below —</option>` +
+    (list || [])
+      .filter((p) => store.showArchived || !p.archived)
+      .map((p) => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`)
+      .join("");
+  const { close } = openModal({
+    title: kind === "supplier" ? "Opening supplier khata" : "Opening customer khata",
+    html: `
+      <form id="open-khata-form" class="form-grid">
+        <label class="full">Existing ${kind}
+          <select name="partyId">${options}</select>
+        </label>
+        <label class="full">Or new ${kind} name<input name="newName" placeholder="Only if not in the list"></label>
+        <label>We ${kind === "supplier" ? "owe them" : "are owed"} (Rs)
+          <input type="number" min="0" step="any" name="amount" required value="">
+        </label>
+        <label>As of date
+          <input type="date" name="openingDate" value="${localToday()}">
+        </label>
+        <label class="full">Note<input name="openingNote" placeholder="Old register / previous shop"></label>
+        <p class="muted full">This only writes the khata balance. It does not create a purchase or sale invoice, and stock does not change.</p>
+        <div class="modal-actions full">
+          <button type="button" class="btn ghost" data-close>Cancel</button>
+          <button class="btn primary">Save opening khata</button>
+        </div>
+      </form>`,
+    onOpen: (wrap) => {
+      wrap.querySelector("#open-khata-form").onsubmit = (e) => {
+        e.preventDefault();
+        const f = e.target;
+        const amount = num(f.amount.value);
+        if (amount < 0) return;
+        const pid = f.partyId.value;
+        const newName = f.newName.value.trim();
+        if (!pid && !newName) {
+          toast("Pick a supplier or type a new name", { type: "err" });
+          return;
+        }
+        commit((db) => {
+          const bucket = kind === "supplier" ? db.suppliers : db.customers;
+          let rec = pid ? bucket.find((x) => String(x.id) === String(pid)) : null;
+          if (!rec) {
+            rec = { id: uid(), name: newName, phone: "", address: "", archived: false };
+            bucket.push(rec);
+          }
+          rec.openingBalance = amount;
+          rec.openingDate = f.openingDate.value || localToday();
+          rec.openingNote = f.openingNote.value.trim();
+        });
+        close();
+        toast("Opening khata saved", { type: "ok" });
       };
     },
   });

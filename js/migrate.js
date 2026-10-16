@@ -36,6 +36,16 @@ export function cloneDb(db) {
   return JSON.parse(JSON.stringify(db));
 }
 
+function normParty(p) {
+  if (!p) return p;
+  return {
+    ...p,
+    openingBalance: num(p.openingBalance),
+    openingDate: p.openingDate ? String(p.openingDate).slice(0, 10) : "",
+    openingNote: p.openingNote || "",
+  };
+}
+
 export function isV1(data) {
   if (!data || typeof data !== "object") return false;
   if (data.version === 2 || Array.isArray(data.invoices)) return false;
@@ -254,8 +264,8 @@ export function normalizeDb(raw) {
   db.invoices = raw.invoices || [];
   db.purchases = raw.purchases || [];
   db.expenses = raw.expenses || [];
-  db.customers = raw.customers || [];
-  db.suppliers = raw.suppliers || [];
+  db.customers = (raw.customers || []).map(normParty);
+  db.suppliers = (raw.suppliers || []).map(normParty);
   db.payments = raw.payments || [];
   db.returns = raw.returns || [];
   db.removed = {
