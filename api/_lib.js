@@ -281,7 +281,7 @@ async function writeGithubDb(db, attempt = 0) {
   return { ok: true, db: outgoing };
 }
 
-const SHOP_MARKER = "HASHMI_BUILD pos17";
+const SHOP_MARKER = "HASHMI_BUILD pos18";
 let shopPublish = { checked: 0, ok: false };
 
 const SHOP_STATIC = [
@@ -309,7 +309,7 @@ async function collectShopFiles() {
   const files = [];
   const origin = shopOrigin();
   for (const rel of SHOP_STATIC) {
-    const res = await fetch(origin + "/" + rel + "?v=pos17", { cache: "no-store" });
+    const res = await fetch(origin + "/" + rel + "?v=pos18", { cache: "no-store" });
     if (!res.ok) continue;
     files.push({ path: rel, content: await res.text() });
   }
@@ -363,7 +363,7 @@ async function publishShopIfStale() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: "HASHMI TRADERS shop v17",
+        message: "HASHMI TRADERS shop v18",
         tree: treeRes.data.sha,
         parents: [ref.data.object.sha],
       }),

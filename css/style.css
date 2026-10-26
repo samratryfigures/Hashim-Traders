@@ -151,6 +151,7 @@ tr.clickable:hover { background: color-mix(in srgb, var(--accent) 8%, transparen
 .badge-advance { background: #e0f2fe; color: #075985; }
 .badge-recv, .badge-pay { background: #ffedd5; color: #9a3412; }
 .badge-settled { background: #e5e7eb; color: #374151; }
+.stock-neg { color: var(--danger); font-weight: 700; }
 
 .sync-badge { font-size: 12px; font-weight: 700; padding: 6px 10px; border-radius: 999px; background: #d1fae5; color: #065f46; }
 .sync-badge[data-state="syncing"] { background: #e0f2fe; color: #075985; }

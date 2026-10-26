@@ -95,7 +95,10 @@ function formatLine(it) {
 }
 
 function kindQtyCheck(state, it, stock) {
-  if (state.kind === "sale" && num(it.qty) > stock) return `Only ${stock} in stock`;
+  if (state.kind === "sale" && num(it.qty) > stock) {
+    const after = round2(stock - num(it.qty));
+    return `No stock — will show ${after}. Next purchase covers this.`;
+  }
   return "";
 }
 
@@ -517,12 +520,7 @@ function bindForm(wrap, state, isSale, close, printAfter) {
       if (i >= 0) probe.purchases[i] = doc;
       else probe.purchases.push(doc);
     }
-    const neg = wouldGoNegative(probe, {});
-    if (neg.length) {
-      errorEl.hidden = false;
-      errorEl.textContent = `Cannot save: ${neg.map((n) => `${n.name} stock would become ${n.stock}`).join("; ")}`;
-      return;
-    }
+    const short = wouldGoNegative(probe, {});
 
     commit((db) => {
       if (isSale) {
@@ -538,7 +536,11 @@ function bindForm(wrap, state, isSale, close, printAfter) {
 
     close();
     successDialog(doc, isSale ? "sale" : "purchase", andPrint);
-    if (isSale) toast(state.isEdit ? "Saved" : "Invoice saved", { type: "ok" });
+    if (isSale) {
+      let msg = state.isEdit ? "Saved" : "Invoice saved";
+      if (short.length) msg += " · stock now " + short.map((n) => `${n.name} ${n.stock}`).join(", ");
+      toast(msg, { type: "ok", timeout: 7000 });
+    }
     else {
       const who = partyName(store.db, "supplier", doc.supplierId);
       const due = t.due;
@@ -798,16 +800,6 @@ export function openReturnForm({ type, existing }) {
           settlement: state.settlement,
           total: round2(state.items.reduce((a, it) => a + it.lineTotal, 0)),
         };
-        const probe = JSON.parse(JSON.stringify(store.db));
-        const i = probe.returns.findIndex((x) => x.id === rec.id);
-        if (i >= 0) probe.returns[i] = rec;
-        else probe.returns.push(rec);
-        const neg = wouldGoNegative(probe, {});
-        if (neg.length) {
-          errEl.hidden = false;
-          errEl.textContent = `Cannot save: ${neg.map((n) => `${n.name} stock would become ${n.stock}`).join("; ")}`;
-          return;
-        }
         commit((db) => {
           const j = db.returns.findIndex((x) => x.id === rec.id);
           if (j >= 0) db.returns[j] = rec;
@@ -874,17 +866,6 @@ export function openProductForm(existing, { onSaved, defaults } = {}) {
           openingStock: num(f.openingStock.value),
           archived: existing?.archived || false,
         };
-        const probe = JSON.parse(JSON.stringify(store.db));
-        const i = probe.products.findIndex((x) => x.id === rec.id);
-        if (i >= 0) probe.products[i] = rec;
-        else probe.products.push(rec);
-        const neg = wouldGoNegative(probe, {});
-        if (neg.length) {
-          const el = wrap.querySelector(".form-error");
-          el.hidden = false;
-          el.textContent = `Cannot save: ${neg.map((n) => `${n.name} stock would become ${n.stock}`).join("; ")}`;
-          return;
-        }
         commit((db) => {
           const j = db.products.findIndex((x) => x.id === rec.id);
           if (j >= 0) db.products[j] = rec;
@@ -1064,15 +1045,6 @@ export async function tryDelete(kind, rec) {
   if (!ok) return;
   const key = pullKey(kind);
   if (!key) return;
-  if (kind !== "invoice") {
-    const probe = JSON.parse(JSON.stringify(store.db));
-    pull(probe, kind, rec.id);
-    const neg = wouldGoNegative(probe, {});
-    if (neg.length) {
-      toast(`Cannot delete: ${neg.map((n) => `${n.name} stock would become ${n.stock}`).join("; ")}`, { type: "err" });
-      return;
-    }
-  }
   commit((db) => {
     pull(db, kind, rec.id);
     db.removed = db.removed || {};

@@ -542,7 +542,7 @@ async function completeSale(andPrint) {
             unit: unitLabel(it.unit || "packets"),
             purchasePrice: num(it.cost) || num(it.rate),
             salePrice: num(it.rate),
-            openingStock: num(it.qty) || 0,
+            openingStock: 0,
             archived: false,
           };
           db.products.push(rec);
@@ -583,11 +583,7 @@ async function completeSale(andPrint) {
       db.invoices.push(doc);
       const neg = wouldGoNegative(db, {});
       if (neg.length) {
-        stockNote = neg.map((n) => n.name).join(", ");
-        for (const n of neg) {
-          const p = db.products.find((x) => String(x.id) === String(n.id));
-          if (p) p.openingStock = num(p.openingStock) - n.stock;
-        }
+        stockNote = neg.map((n) => `${n.name} ${n.stock}`).join(", ");
       }
     }, { undoLabel: "Undo sale" });
 
@@ -597,7 +593,7 @@ async function completeSale(andPrint) {
     }
     let msg = "Sale " + doc.no + " saved";
     if (created) msg += ` · ${created} new product${created > 1 ? "s" : ""} added`;
-    if (stockNote) msg += " · opening stock increased for " + stockNote;
+    if (stockNote) msg += " · stock now " + stockNote + " (next purchase will cover it)";
     toast(msg, { type: "ok", timeout: 7000 });
     const saved = await pushCloud(store.db, { force: true });
     if (!saved) {

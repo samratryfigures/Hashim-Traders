@@ -169,7 +169,7 @@ function renderProducts() {
   bindTable(host, {
     searchPlaceholder: "Search products…",
     empty: "No products yet",
-    emptyHint: "Add items you buy and sell. Stock is calculated from opening stock, purchases, sales and returns.",
+    emptyHint: "Add items you buy and sell. Stock is opening + purchases − sales. A sale with no stock goes minus until you purchase.",
     columns: [
       { key: "code", label: "Code" },
       { key: "name", label: "Product" },
@@ -177,7 +177,12 @@ function renderProducts() {
       { key: "unit", label: "Unit" },
       { key: "purchasePrice", label: "Purchase", render: (r) => money(r.purchasePrice) },
       { key: "salePrice", label: "Sale", render: (r) => money(r.salePrice) },
-      { key: "stock", label: "Stock", render: (r) => `${r.stock} ${r.unit || "pcs"}` },
+      {
+        key: "stock",
+        label: "Stock",
+        render: (r) =>
+          `<span class="${r.stock < -0.0001 ? "stock-neg" : ""}">${r.stock} ${r.unit || "pcs"}</span>`,
+      },
       { key: "archived", label: "", render: (r) => (r.archived ? `<span class="badge">Archived</span>` : "") },
     ],
     rows: () =>
