@@ -1,5 +1,5 @@
 import { localToday, num, round2, uid, nextNo, WALK_IN, escapeHtml, unitLabel, unitOptions, money } from "./utils.js";
-import { productStock, wouldGoNegative, totalsFromItems, advanceBalance, filledInvoiceItems } from "./compute.js";
+import { productStock, wouldGoNegative, totalsFromItems, advanceBalance, filledInvoiceItems, lastPurchaseRate } from "./compute.js";
 import { store, commit } from "./store.js";
 import { toast, isEditingField } from "./ui.js";
 import { pushCloud } from "./sync.js";
@@ -209,7 +209,7 @@ function applyProduct(i, id) {
     qty: num(pos.items[i].qty) || 1,
     unit: unitLabel(p.unit),
     rate: num(p.salePrice),
-    cost: num(p.purchasePrice),
+    cost: lastPurchaseRate(store.db, p.id, pos.date),
   };
 }
 
@@ -384,7 +384,7 @@ export function addProduct(id) {
       qty: 1,
       unit: unitLabel(p.unit),
       rate: num(p.salePrice),
-      cost: num(p.purchasePrice),
+      cost: lastPurchaseRate(store.db, p.id, pos.date),
     };
     if (blank) Object.assign(blank, row);
     else pos.items.push(row);
@@ -447,7 +447,7 @@ function matchNamedProducts() {
     it.name = p.name;
     it.category = p.category || it.category || "";
     if (!num(it.rate)) it.rate = num(p.salePrice);
-    it.cost = num(p.purchasePrice);
+    it.cost = lastPurchaseRate(store.db, p.id, pos.date);
     it.unit = it.unit || unitLabel(p.unit);
   }
 }
@@ -556,7 +556,7 @@ async function completeSale(andPrint) {
           qty: num(it.qty) || 1,
           unit: unitLabel(it.unit || rec.unit),
           rate: num(it.rate),
-          cost: num(it.cost) || num(rec.purchasePrice),
+          cost: lastPurchaseRate(db, pid, pos.date) || num(it.cost) || num(rec.purchasePrice),
           lineTotal: round2((num(it.qty) || 1) * num(it.rate)),
         };
       });

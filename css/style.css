@@ -161,6 +161,8 @@ tr.clickable:hover { background: color-mix(in srgb, var(--accent) 8%, transparen
 .field-error { color: var(--danger); font-size: 13px; margin: 4px 0 0; font-weight: 600; }
 .live-totals { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0; font-size: 14px; }
 .items-table select, .items-table input { min-height: 38px; }
+.items-table tbody tr.item-row td { border-bottom: none; }
+.items-table tbody tr.item-rule td { border: 0; border-bottom: 1px solid var(--ink); height: 10px; padding: 0; }
 .item-add-row { margin: 10px 0 4px; gap: 8px; flex-wrap: wrap; }
 .prod-picker { position: relative; min-width: 160px; }
 .item-product-q { width: 100%; }
@@ -274,7 +276,10 @@ body.printing #app, body.printing #login-screen, body.printing .toasts, body.pri
 .print-sheet { padding: 24px; color: #111; background: #fff; }
 .print-head { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .print-items { width: 100%; border-collapse: collapse; }
-.print-items th, .print-items td { border-bottom: 1px solid #ddd; padding: 6px; text-align: left; }
+.print-items th { border-bottom: 2px solid #111; padding: 8px 6px; text-align: left; }
+.print-items td { padding: 8px 6px; text-align: left; vertical-align: top; }
+.print-items tr.item-row td { border-bottom: none; }
+.print-items tr.item-rule td { border: 0; border-bottom: 1px solid #111; height: 10px; padding: 0; }
 .print-totals { margin: 12px 0; text-align: right; }
 .print-sign { display: flex; justify-content: space-between; margin-top: 48px; }
 .print-sign div { border-top: 1px solid #111; width: 40%; padding-top: 6px; }

@@ -1,5 +1,5 @@
 import { money, escapeHtml, WALK_IN } from "./utils.js";
-import { paidAmount, dueAmount, partyBalance, partyName, partyLedger, ledgerSummary, payStatus, qtyReturnedOn } from "./compute.js";
+import { paidAmount, dueAmount, partyBalance, partyName, partyLedger, ledgerSummary, payStatus, qtyReturnedOn, lastPurchaseRate } from "./compute.js";
 import { store } from "./store.js";
 
 function biz() {
@@ -25,7 +25,7 @@ export function invoiceHtml(doc, { kind = "sale", thermal = false } = {}) {
   const items = (doc.items || [])
     .map(
       (it, i) =>
-        `<tr><td>${i + 1}</td><td>${escapeHtml(it.name)}</td><td>${escapeHtml(it.category || "")}</td><td>${it.qty}</td><td>${escapeHtml(it.unit || "pcs")}</td><td>${money(it.rate)}</td><td>${money(it.lineTotal ?? it.qty * it.rate)}</td></tr>`
+        `<tr class="item-row"><td>${i + 1}</td><td>${escapeHtml(it.name)}</td><td>${escapeHtml(it.category || "")}</td><td>${it.qty}</td><td>${escapeHtml(it.unit || "pcs")}</td><td>${money(it.rate)}</td><td>${money(it.lineTotal ?? it.qty * it.rate)}</td></tr><tr class="item-rule"><td colspan="7"></td></tr>`
     )
     .join("");
   const method = (doc.payment?.method || "").toUpperCase();
@@ -79,17 +79,17 @@ export function invoiceDetailHtml(doc, { kind = "sale" } = {}) {
   const lines = (doc.items || [])
     .map((it, i) => {
       const retq = qtyReturnedOn(store.db, doc.id, it.productId);
-      return `<tr>
+      return `<tr class="item-row">
         <td>${i + 1}</td>
         <td>${escapeHtml(it.name)}</td>
         <td>${escapeHtml(it.category || "—")}</td>
         <td>${it.qty}</td>
         <td>${escapeHtml(it.unit || "pcs")}</td>
         <td>${money(it.rate)}</td>
-        <td>${money(it.cost)}</td>
+        <td>${money(lastPurchaseRate(store.db, it.productId, doc.date))}</td>
         <td>${money(it.lineTotal ?? numSafe(it.qty) * numSafe(it.rate))}</td>
         <td>${retq ? retq : "—"}</td>
-      </tr>`;
+      </tr><tr class="item-rule"><td colspan="9"></td></tr>`;
     })
     .join("");
   const rets = (store.db.returns || []).filter((r) => r.sourceId === doc.id);
@@ -164,7 +164,7 @@ export function creditNoteHtml(ret) {
   const items = (ret.items || [])
     .map(
       (it, i) =>
-        `<tr><td>${i + 1}</td><td>${escapeHtml(it.name)}</td><td>${escapeHtml(it.category || "")}</td><td>${it.qty}</td><td>${escapeHtml(it.unit || "")}</td><td>${money(it.rate)}</td><td>${money(it.lineTotal)}</td></tr>`
+        `<tr class="item-row"><td>${i + 1}</td><td>${escapeHtml(it.name)}</td><td>${escapeHtml(it.category || "")}</td><td>${it.qty}</td><td>${escapeHtml(it.unit || "")}</td><td>${money(it.rate)}</td><td>${money(it.lineTotal)}</td></tr><tr class="item-rule"><td colspan="7"></td></tr>`
     )
     .join("");
   return `

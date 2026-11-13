@@ -12,6 +12,7 @@ import {
   wouldGoNegative,
   qtyReturnedOn,
   chartSeries,
+  lastPurchaseRate,
 } from "../js/compute.js";
 import { rangeForPreset, localToday, round2 } from "../js/utils.js";
 
@@ -266,5 +267,60 @@ describe("purchases and supplier khata", () => {
     });
     // removing purchase of 10 while 0 sold from that extra: stock 100 opening, would be 100, ok
     assert.equal(neg.length, 0);
+  });
+});
+
+describe("latest purchase rate for profit", () => {
+  function buy(db, id, no, date, productId, qty, rate) {
+    db.purchases.push({
+      id,
+      no,
+      date,
+      supplierId: "sup1",
+      items: [{ productId, name: "A", qty, rate, cost: rate, lineTotal: qty * rate }],
+      discount: 0,
+      subtotal: qty * rate,
+      total: qty * rate,
+      payment: { method: "credit", amount: 0 },
+    });
+  }
+  function sell(db, id, no, date, productId, qty, rate) {
+    db.invoices.push({
+      id,
+      no,
+      date,
+      customerId: "walk-in",
+      items: [{ productId, name: "A", qty, rate, cost: 0, lineTotal: qty * rate }],
+      discount: 0,
+      subtotal: qty * rate,
+      total: qty * rate,
+      payment: { method: "cash", amount: qty * rate },
+    });
+  }
+
+  it("cheap later purchase uses latest buy on or before sale date", () => {
+    const db = freshDb();
+    buy(db, "pu1", "PUR-0001", "2026-09-01", "a", 1, 10);
+    sell(db, "inv1", "INV-0001", "2026-09-10", "a", 1, 20);
+    assert.equal(lastPurchaseRate(db, "a", "2026-09-10"), 10);
+    assert.equal(dashboardStats(db, { from: "2026-09-10", to: "2026-09-10" }).cogs, 10);
+    buy(db, "pu2", "PUR-0002", "2026-09-20", "a", 1, 7);
+    sell(db, "inv2", "INV-0002", "2026-09-21", "a", 1, 20);
+    assert.equal(lastPurchaseRate(db, "a", "2026-09-21"), 7);
+    const stats = dashboardStats(db, { from: "2026-09-01", to: "2026-09-30" });
+    assert.equal(stats.sales, 40);
+    assert.equal(stats.cogs, 17);
+    assert.equal(stats.gross, 23);
+  });
+
+  it("costly later purchase uses latest buy for COGS", () => {
+    const db = freshDb();
+    buy(db, "pu1", "PUR-0001", "2026-09-01", "a", 10, 10);
+    buy(db, "pu2", "PUR-0002", "2026-09-10", "a", 10, 14);
+    sell(db, "inv1", "INV-0001", "2026-09-15", "a", 2, 20);
+    assert.equal(lastPurchaseRate(db, "a", "2026-09-15"), 14);
+    const stats = dashboardStats(db, { from: "2026-09-01", to: "2026-09-30" });
+    assert.equal(stats.cogs, 28);
+    assert.equal(stats.gross, 12);
   });
 });

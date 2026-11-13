@@ -10,6 +10,7 @@ import {
   totalsFromItems,
   partyName,
   filledInvoiceItems,
+  lastPurchaseRate,
 } from "./compute.js";
 import { store, commit, applyUndo } from "./store.js";
 import { toast, confirmDialog, openModal } from "./ui.js";
@@ -269,7 +270,7 @@ function bindForm(wrap, state, isSale, close, printAfter) {
     state.items[i].productId = p.id;
     state.items[i].name = p.name;
     state.items[i].category = p.category || "";
-    state.items[i].cost = num(p.purchasePrice);
+    state.items[i].cost = isSale ? lastPurchaseRate(store.db, p.id, state.date) : num(p.purchasePrice);
     state.items[i].rate = isSale ? num(p.salePrice) : num(p.purchasePrice);
     state.items[i].unit = unitLabel(p.unit);
   }
@@ -492,7 +493,7 @@ function bindForm(wrap, state, isSale, close, printAfter) {
         qty: num(it.qty),
         unit: unitLabel(it.unit),
         rate: num(it.rate),
-        cost: num(it.cost),
+        cost: isSale ? lastPurchaseRate(store.db, it.productId, state.date) : num(it.cost),
         lineTotal: round2(num(it.qty) * num(it.rate)),
       })),
       discount: t.discount,
@@ -531,6 +532,10 @@ function bindForm(wrap, state, isSale, close, printAfter) {
         const i = db.purchases.findIndex((x) => x.id === doc.id);
         if (i >= 0) db.purchases[i] = doc;
         else db.purchases.push(doc);
+        for (const it of doc.items || []) {
+          const p = db.products.find((x) => String(x.id) === String(it.productId));
+          if (p) p.purchasePrice = num(it.rate);
+        }
       }
     }, { undoLabel: state.isEdit ? "Undo edit" : "Undo save" });
 

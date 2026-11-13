@@ -59,7 +59,7 @@ export function stockValue(db) {
     if (p.archived) continue;
     const s = productStock(db, p.id);
     items += s;
-    value += s * num(p.purchasePrice);
+    value += s * lastPurchaseRate(db, p.id);
   }
   return { items: round2(items), value: round2(value) };
 }
@@ -348,18 +348,46 @@ export function ledgerSummary(db, partyType, partyId) {
   return { billed: round2(billed), paid: round2(paid), returned: round2(returned), remaining: round2(remaining) };
 }
 
-function invoiceCogs(inv) {
-  return round2((inv.items || []).reduce((a, it) => a + num(it.qty) * num(it.cost), 0));
+export function lastPurchaseRate(db, productId, onOrBefore) {
+  const pid = String(productId || "");
+  const cutoff = onOrBefore ? String(onOrBefore).slice(0, 10) : "";
+  let best = null;
+  const purchases = db.purchases || [];
+  for (let pi = 0; pi < purchases.length; pi++) {
+    const pur = purchases[pi];
+    const d = String(pur.date || "").slice(0, 10);
+    if (cutoff && d && d > cutoff) continue;
+    const items = pur.items || [];
+    for (let ii = 0; ii < items.length; ii++) {
+      const it = items[ii];
+      if (String(it.productId) !== pid) continue;
+      const rate = num(it.rate) || num(it.cost);
+      const cand = { date: d, no: String(pur.no || ""), pi, ii, rate };
+      if (!best) {
+        best = cand;
+        continue;
+      }
+      if (cand.date > best.date) best = cand;
+      else if (cand.date === best.date) {
+        if (cand.no > best.no) best = cand;
+        else if (cand.no === best.no && (cand.pi > best.pi || (cand.pi === best.pi && cand.ii > best.ii))) best = cand;
+      }
+    }
+  }
+  if (best) return num(best.rate);
+  const p = (db.products || []).find((x) => String(x.id) === pid);
+  return num(p?.purchasePrice);
+}
+
+function invoiceCogs(db, inv) {
+  return round2((inv.items || []).reduce((a, it) => a + num(it.qty) * lastPurchaseRate(db, it.productId, inv.date), 0));
 }
 
 function returnCogs(db, ret) {
   if (ret.type !== "sale") return 0;
-  const src = (db.invoices || []).find((i) => i.id === ret.sourceId);
   let cogs = 0;
   for (const it of ret.items || []) {
-    const orig = src?.items?.find((x) => String(x.productId) === String(it.productId));
-    const cost = orig ? num(orig.cost) : num(it.cost);
-    cogs += num(it.qty) * cost;
+    cogs += num(it.qty) * lastPurchaseRate(db, it.productId, ret.date);
   }
   return round2(cogs);
 }
@@ -378,7 +406,7 @@ export function dashboardStats(db, range) {
   const salesReturns = round2(rets.filter((r) => r.type === "sale").reduce((a, x) => a + num(x.total), 0));
   const purchaseReturns = round2(rets.filter((r) => r.type === "purchase").reduce((a, x) => a + num(x.total), 0));
 
-  const cogsSold = round2(invs.reduce((a, x) => a + invoiceCogs(x), 0));
+  const cogsSold = round2(invs.reduce((a, x) => a + invoiceCogs(db, x), 0));
   const cogsRet = round2(rets.filter((r) => r.type === "sale").reduce((a, x) => a + returnCogs(db, x), 0));
   const cogs = round2(cogsSold - cogsRet);
   const gross = round2(sales - salesReturns - cogs);
