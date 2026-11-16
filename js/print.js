@@ -86,7 +86,7 @@ export function invoiceDetailHtml(doc, { kind = "sale" } = {}) {
         <td>${it.qty}</td>
         <td>${escapeHtml(it.unit || "pcs")}</td>
         <td>${money(it.rate)}</td>
-        <td>${money(lastPurchaseRate(store.db, it.productId, doc.date))}</td>
+        <td>${money(numSafe(it.cost) || lastPurchaseRate(store.db, it.productId, doc.date))}</td>
         <td>${money(it.lineTotal ?? numSafe(it.qty) * numSafe(it.rate))}</td>
         <td>${retq ? retq : "—"}</td>
       </tr><tr class="item-rule"><td colspan="9"></td></tr>`;

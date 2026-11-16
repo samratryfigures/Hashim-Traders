@@ -53,13 +53,19 @@ export function allStocks(db, exclude) {
 }
 
 export function stockValue(db) {
+  const fifo = fifoState(db);
   let value = 0;
   let items = 0;
   for (const p of db.products || []) {
     if (p.archived) continue;
     const s = productStock(db, p.id);
     items += s;
-    value += s * lastPurchaseRate(db, p.id);
+    if (s < -0.0001) {
+      value += s * lastPurchaseRate(db, p.id);
+    } else {
+      const lots = fifo.lots.get(String(p.id)) || [];
+      for (const lot of lots) value += num(lot.qty) * num(lot.cost);
+    }
   }
   return { items: round2(items), value: round2(value) };
 }
@@ -379,17 +385,215 @@ export function lastPurchaseRate(db, productId, onOrBefore) {
   return num(p?.purchasePrice);
 }
 
+function movementRate(it) {
+  return num(it.rate) || num(it.cost);
+}
+
+function earlierCand(a, b) {
+  if (!a) return true;
+  if (b.date < a.date) return true;
+  if (b.date !== a.date) return false;
+  if (b.no < a.no) return true;
+  if (b.no !== a.no) return false;
+  if (b.pi < a.pi) return true;
+  return b.pi === a.pi && b.ii < a.ii;
+}
+
+export function openingUnitCost(db, p) {
+  if (!p) return 0;
+  const explicit = num(p.openingCost);
+  if (explicit) return explicit;
+  const pid = String(p.id);
+
+  let firstPurchase = null;
+  const purchases = db.purchases || [];
+  for (let pi = 0; pi < purchases.length; pi++) {
+    const pur = purchases[pi];
+    const d = String(pur.date || "").slice(0, 10);
+    const items = pur.items || [];
+    for (let ii = 0; ii < items.length; ii++) {
+      const it = items[ii];
+      if (String(it.productId) !== pid) continue;
+      const cand = { date: d, no: String(pur.no || ""), pi, ii, rate: movementRate(it) };
+      if (earlierCand(firstPurchase, cand)) firstPurchase = cand;
+    }
+  }
+
+  let firstSale = null;
+  const invoices = db.invoices || [];
+  for (let si = 0; si < invoices.length; si++) {
+    const inv = invoices[si];
+    const d = String(inv.date || "").slice(0, 10);
+    const items = inv.items || [];
+    for (let ii = 0; ii < items.length; ii++) {
+      const it = items[ii];
+      if (String(it.productId) !== pid) continue;
+      const cost = num(it.cost);
+      if (!cost) continue;
+      const cand = { date: d, no: String(inv.no || ""), pi: si, ii, rate: cost };
+      if (earlierCand(firstSale, cand)) firstSale = cand;
+    }
+  }
+
+  if (firstSale && (!firstPurchase || firstSale.date < firstPurchase.date)) return num(firstSale.rate);
+  if (firstPurchase) return num(firstPurchase.rate);
+  return num(p.purchasePrice);
+}
+
+export function consumeLots(lots, qty, fallbackCost) {
+  let remain = num(qty);
+  let cogs = 0;
+  while (remain > 1e-9 && lots.length) {
+    const lot = lots[0];
+    const take = Math.min(num(lot.qty), remain);
+    cogs += take * num(lot.cost);
+    lot.qty = num(lot.qty) - take;
+    remain -= take;
+    if (num(lot.qty) <= 1e-9) lots.shift();
+  }
+  if (remain > 1e-9) cogs += remain * num(fallbackCost);
+  return round2(cogs);
+}
+
+function lotsFor(map, pid) {
+  const key = String(pid);
+  if (!map.has(key)) map.set(key, []);
+  return map.get(key);
+}
+
+function replayFifo(db) {
+  const lots = new Map();
+  const invoiceCogsMap = new Map();
+  const returnCogsMap = new Map();
+  const saleUnitCost = new Map();
+  const fallback = new Map();
+
+  for (const p of db.products || []) {
+    const pid = String(p.id);
+    const unit = openingUnitCost(db, p);
+    fallback.set(pid, unit || num(p.purchasePrice));
+    const openQty = num(p.openingStock);
+    if (openQty > 1e-9) lots.set(pid, [{ qty: openQty, cost: unit }]);
+    else lots.set(pid, []);
+  }
+
+  const events = [];
+  const purchases = db.purchases || [];
+  for (let pi = 0; pi < purchases.length; pi++) {
+    const pur = purchases[pi];
+    events.push({
+      date: String(pur.date || "").slice(0, 10),
+      kind: 0,
+      no: String(pur.no || ""),
+      idx: pi,
+      pur,
+    });
+  }
+  const invoices = db.invoices || [];
+  for (let si = 0; si < invoices.length; si++) {
+    const inv = invoices[si];
+    events.push({
+      date: String(inv.date || "").slice(0, 10),
+      kind: 1,
+      no: String(inv.no || ""),
+      idx: si,
+      inv,
+    });
+  }
+  const rets = db.returns || [];
+  for (let ri = 0; ri < rets.length; ri++) {
+    const ret = rets[ri];
+    events.push({
+      date: String(ret.date || "").slice(0, 10),
+      kind: ret.type === "purchase" ? 2 : 3,
+      no: String(ret.no || ""),
+      idx: ri,
+      ret,
+    });
+  }
+  events.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    if (a.kind !== b.kind) return a.kind - b.kind;
+    if (a.no !== b.no) return a.no < b.no ? -1 : 1;
+    return a.idx - b.idx;
+  });
+
+  for (const ev of events) {
+    if (ev.kind === 0) {
+      for (const it of ev.pur.items || []) {
+        const pid = String(it.productId || "");
+        if (!pid) continue;
+        const qty = num(it.qty);
+        if (qty <= 0) continue;
+        const cost = movementRate(it);
+        lotsFor(lots, pid).push({ qty, cost });
+      }
+      continue;
+    }
+    if (ev.kind === 1) {
+      let cogs = 0;
+      for (const it of ev.inv.items || []) {
+        const pid = String(it.productId || "");
+        if (!pid) continue;
+        const qty = num(it.qty);
+        if (qty <= 0) continue;
+        const fb = fallback.get(pid) ?? lastPurchaseRate(db, pid, ev.inv.date);
+        const line = consumeLots(lotsFor(lots, pid), qty, fb);
+        cogs += line;
+        const prev = saleUnitCost.get(ev.inv.id + ":" + pid) || { qty: 0, cogs: 0 };
+        prev.qty += qty;
+        prev.cogs += line;
+        saleUnitCost.set(ev.inv.id + ":" + pid, prev);
+      }
+      invoiceCogsMap.set(ev.inv.id, round2(cogs));
+      continue;
+    }
+    if (ev.kind === 2) {
+      for (const it of ev.ret.items || []) {
+        const pid = String(it.productId || "");
+        if (!pid) continue;
+        const qty = num(it.qty);
+        if (qty <= 0) continue;
+        const fb = fallback.get(pid) ?? lastPurchaseRate(db, pid, ev.ret.date);
+        consumeLots(lotsFor(lots, pid), qty, fb);
+      }
+      continue;
+    }
+    let cogs = 0;
+    for (const it of ev.ret.items || []) {
+      const pid = String(it.productId || "");
+      if (!pid) continue;
+      const qty = num(it.qty);
+      if (qty <= 0) continue;
+      const src = saleUnitCost.get(String(ev.ret.sourceId || "") + ":" + pid);
+      const fb = fallback.get(pid) ?? lastPurchaseRate(db, pid, ev.ret.date);
+      const unit = src && src.qty ? src.cogs / src.qty : num(it.cost) || fb;
+      lotsFor(lots, pid).unshift({ qty, cost: unit });
+      cogs += qty * unit;
+    }
+    returnCogsMap.set(ev.ret.id, round2(cogs));
+  }
+
+  return { lots, invoiceCogs: invoiceCogsMap, returnCogs: returnCogsMap };
+}
+
+const fifoCache = new WeakMap();
+
+export function fifoState(db) {
+  let state = fifoCache.get(db);
+  if (state) return state;
+  state = replayFifo(db);
+  fifoCache.set(db, state);
+  return state;
+}
+
 function invoiceCogs(db, inv) {
-  return round2((inv.items || []).reduce((a, it) => a + num(it.qty) * lastPurchaseRate(db, it.productId, inv.date), 0));
+  return fifoState(db).invoiceCogs.get(inv.id) || 0;
 }
 
 function returnCogs(db, ret) {
   if (ret.type !== "sale") return 0;
-  let cogs = 0;
-  for (const it of ret.items || []) {
-    cogs += num(it.qty) * lastPurchaseRate(db, it.productId, ret.date);
-  }
-  return round2(cogs);
+  return fifoState(db).returnCogs.get(ret.id) || 0;
 }
 
 export function dashboardStats(db, range) {

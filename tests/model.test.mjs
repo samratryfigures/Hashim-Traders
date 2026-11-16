@@ -270,7 +270,12 @@ describe("purchases and supplier khata", () => {
   });
 });
 
-describe("latest purchase rate for profit", () => {
+describe("FIFO lots for profit", () => {
+  function emptyStockDb() {
+    const db = freshDb();
+    db.products[0].openingStock = 0;
+    return db;
+  }
   function buy(db, id, no, date, productId, qty, rate) {
     db.purchases.push({
       id,
@@ -298,29 +303,38 @@ describe("latest purchase rate for profit", () => {
     });
   }
 
-  it("cheap later purchase uses latest buy on or before sale date", () => {
-    const db = freshDb();
-    buy(db, "pu1", "PUR-0001", "2026-09-01", "a", 1, 10);
+  it("later cheaper restock does not reprice remaining first lot", () => {
+    const db = emptyStockDb();
+    buy(db, "pu1", "PUR-0001", "2026-09-01", "a", 20, 10);
     sell(db, "inv1", "INV-0001", "2026-09-10", "a", 1, 20);
-    assert.equal(lastPurchaseRate(db, "a", "2026-09-10"), 10);
-    assert.equal(dashboardStats(db, { from: "2026-09-10", to: "2026-09-10" }).cogs, 10);
-    buy(db, "pu2", "PUR-0002", "2026-09-20", "a", 1, 7);
+    buy(db, "pu2", "PUR-0002", "2026-09-20", "a", 20, 7);
     sell(db, "inv2", "INV-0002", "2026-09-21", "a", 1, 20);
     assert.equal(lastPurchaseRate(db, "a", "2026-09-21"), 7);
     const stats = dashboardStats(db, { from: "2026-09-01", to: "2026-09-30" });
     assert.equal(stats.sales, 40);
-    assert.equal(stats.cogs, 17);
-    assert.equal(stats.gross, 23);
+    assert.equal(stats.cogs, 20);
+    assert.equal(stats.gross, 20);
   });
 
-  it("costly later purchase uses latest buy for COGS", () => {
-    const db = freshDb();
+  it("sells oldest lot first instead of latest restock", () => {
+    const db = emptyStockDb();
     buy(db, "pu1", "PUR-0001", "2026-09-01", "a", 10, 10);
     buy(db, "pu2", "PUR-0002", "2026-09-10", "a", 10, 14);
     sell(db, "inv1", "INV-0001", "2026-09-15", "a", 2, 20);
     assert.equal(lastPurchaseRate(db, "a", "2026-09-15"), 14);
     const stats = dashboardStats(db, { from: "2026-09-01", to: "2026-09-30" });
-    assert.equal(stats.cogs, 28);
-    assert.equal(stats.gross, 12);
+    assert.equal(stats.cogs, 20);
+    assert.equal(stats.gross, 20);
+  });
+
+  it("crosses into the dearer lot only after the cheap lot is gone", () => {
+    const db = emptyStockDb();
+    buy(db, "pu1", "PUR-0001", "2026-09-01", "a", 2, 10);
+    buy(db, "pu2", "PUR-0002", "2026-09-10", "a", 2, 14);
+    sell(db, "inv1", "INV-0001", "2026-09-15", "a", 2, 20);
+    sell(db, "inv2", "INV-0002", "2026-09-16", "a", 2, 20);
+    const stats = dashboardStats(db, { from: "2026-09-01", to: "2026-09-30" });
+    assert.equal(stats.cogs, 48);
+    assert.equal(stats.gross, 32);
   });
 });
