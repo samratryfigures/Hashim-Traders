@@ -597,8 +597,12 @@ export function avgCostNow(db, productId) {
   return lastPurchaseRate(db, productId);
 }
 
+export function saleInvoiceCogs(db, invoiceId) {
+  return costState(db).invoiceCogs.get(invoiceId) || 0;
+}
+
 function invoiceCogs(db, inv) {
-  return costState(db).invoiceCogs.get(inv.id) || 0;
+  return saleInvoiceCogs(db, inv.id);
 }
 
 function returnCogs(db, ret) {

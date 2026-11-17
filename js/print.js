@@ -1,5 +1,5 @@
 import { money, escapeHtml, WALK_IN } from "./utils.js";
-import { paidAmount, dueAmount, partyBalance, partyName, partyLedger, ledgerSummary, payStatus, qtyReturnedOn, lastPurchaseRate, avgCostNow } from "./compute.js";
+import { paidAmount, dueAmount, partyBalance, partyName, partyLedger, ledgerSummary, payStatus, qtyReturnedOn, lastPurchaseRate, avgCostNow, saleInvoiceCogs } from "./compute.js";
 import { store } from "./store.js";
 
 function biz() {
@@ -72,6 +72,7 @@ export function invoiceDetailHtml(doc, { kind = "sale" } = {}) {
   const paid = paidAmount(doc);
   const due = dueAmount(doc);
   const status = payStatus(doc);
+  const billCogs = isSale ? saleInvoiceCogs(store.db, doc.id) : 0;
   const pay = doc.payment || {};
   const partyList = isSale ? store.db.customers : store.db.suppliers;
   const party = partyId && partyId !== WALK_IN ? partyList.find((x) => x.id === partyId) : null;
@@ -136,6 +137,12 @@ export function invoiceDetailHtml(doc, { kind = "sale" } = {}) {
         <div><span>Subtotal</span><strong>${money(doc.subtotal)}</strong></div>
         <div><span>Discount</span><strong>${money(doc.discount)}</strong></div>
         <div><span>Total</span><strong>${money(doc.total)}</strong></div>
+        ${
+          isSale
+            ? `<div><span>Cost of this bill</span><strong>${money(billCogs)}</strong></div>
+        <div><span>Profit on this bill</span><strong>${money(numSafe(doc.total) - billCogs)}</strong></div>`
+            : ""
+        }
         <div><span>Paid</span><strong>${money(paid)}</strong></div>
         <div><span>Balance due</span><strong>${money(due)}</strong></div>
         ${khata != null ? `<div><span>${isSale ? "Customer khata now" : "Supplier khata now"}</span><strong>${money(khata)}</strong></div>` : ""}

@@ -14,6 +14,7 @@ import {
   chartSeries,
   lastPurchaseRate,
   avgCostNow,
+  saleInvoiceCogs,
 } from "../js/compute.js";
 import { rangeForPreset, localToday, round2 } from "../js/utils.js";
 
@@ -315,6 +316,7 @@ describe("moving-average cost for profit", () => {
     assert.equal(stats.sales, 40);
     assert.equal(stats.cogs, 24);
     assert.equal(stats.gross, 16);
+    assert.equal(saleInvoiceCogs(db, "inv1"), 24);
   });
 
   it("cheaper restock blends remaining stock instead of leaving the old lot", () => {
@@ -328,5 +330,7 @@ describe("moving-average cost for profit", () => {
     assert.equal(stats.sales, 40);
     assert.equal(stats.cogs, 18.46);
     assert.equal(stats.gross, 21.54);
+    assert.equal(saleInvoiceCogs(db, "inv1"), 10);
+    assert.equal(saleInvoiceCogs(db, "inv2"), 8.46);
   });
 });
