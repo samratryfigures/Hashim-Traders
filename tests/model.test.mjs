@@ -13,6 +13,7 @@ import {
   qtyReturnedOn,
   chartSeries,
   lastPurchaseRate,
+  avgCostNow,
 } from "../js/compute.js";
 import { rangeForPreset, localToday, round2 } from "../js/utils.js";
 
@@ -270,7 +271,7 @@ describe("purchases and supplier khata", () => {
   });
 });
 
-describe("FIFO lots for profit", () => {
+describe("moving-average cost for profit", () => {
   function emptyStockDb() {
     const db = freshDb();
     db.products[0].openingStock = 0;
@@ -303,7 +304,20 @@ describe("FIFO lots for profit", () => {
     });
   }
 
-  it("later cheaper restock does not reprice remaining first lot", () => {
+  it("buy 10@10 then 10@14, sell 2 uses blended average", () => {
+    const db = emptyStockDb();
+    buy(db, "pu1", "PUR-0001", "2026-09-01", "a", 10, 10);
+    buy(db, "pu2", "PUR-0002", "2026-09-10", "a", 10, 14);
+    sell(db, "inv1", "INV-0001", "2026-09-15", "a", 2, 20);
+    assert.equal(lastPurchaseRate(db, "a", "2026-09-15"), 14);
+    assert.equal(round2(avgCostNow(db, "a")), 12);
+    const stats = dashboardStats(db, { from: "2026-09-01", to: "2026-09-30" });
+    assert.equal(stats.sales, 40);
+    assert.equal(stats.cogs, 24);
+    assert.equal(stats.gross, 16);
+  });
+
+  it("cheaper restock blends remaining stock instead of leaving the old lot", () => {
     const db = emptyStockDb();
     buy(db, "pu1", "PUR-0001", "2026-09-01", "a", 20, 10);
     sell(db, "inv1", "INV-0001", "2026-09-10", "a", 1, 20);
@@ -312,29 +326,7 @@ describe("FIFO lots for profit", () => {
     assert.equal(lastPurchaseRate(db, "a", "2026-09-21"), 7);
     const stats = dashboardStats(db, { from: "2026-09-01", to: "2026-09-30" });
     assert.equal(stats.sales, 40);
-    assert.equal(stats.cogs, 20);
-    assert.equal(stats.gross, 20);
-  });
-
-  it("sells oldest lot first instead of latest restock", () => {
-    const db = emptyStockDb();
-    buy(db, "pu1", "PUR-0001", "2026-09-01", "a", 10, 10);
-    buy(db, "pu2", "PUR-0002", "2026-09-10", "a", 10, 14);
-    sell(db, "inv1", "INV-0001", "2026-09-15", "a", 2, 20);
-    assert.equal(lastPurchaseRate(db, "a", "2026-09-15"), 14);
-    const stats = dashboardStats(db, { from: "2026-09-01", to: "2026-09-30" });
-    assert.equal(stats.cogs, 20);
-    assert.equal(stats.gross, 20);
-  });
-
-  it("crosses into the dearer lot only after the cheap lot is gone", () => {
-    const db = emptyStockDb();
-    buy(db, "pu1", "PUR-0001", "2026-09-01", "a", 2, 10);
-    buy(db, "pu2", "PUR-0002", "2026-09-10", "a", 2, 14);
-    sell(db, "inv1", "INV-0001", "2026-09-15", "a", 2, 20);
-    sell(db, "inv2", "INV-0002", "2026-09-16", "a", 2, 20);
-    const stats = dashboardStats(db, { from: "2026-09-01", to: "2026-09-30" });
-    assert.equal(stats.cogs, 48);
-    assert.equal(stats.gross, 32);
+    assert.equal(stats.cogs, 18.46);
+    assert.equal(stats.gross, 21.54);
   });
 });

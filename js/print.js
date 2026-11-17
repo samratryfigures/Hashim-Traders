@@ -1,5 +1,5 @@
 import { money, escapeHtml, WALK_IN } from "./utils.js";
-import { paidAmount, dueAmount, partyBalance, partyName, partyLedger, ledgerSummary, payStatus, qtyReturnedOn, lastPurchaseRate } from "./compute.js";
+import { paidAmount, dueAmount, partyBalance, partyName, partyLedger, ledgerSummary, payStatus, qtyReturnedOn, lastPurchaseRate, avgCostNow } from "./compute.js";
 import { store } from "./store.js";
 
 function biz() {
@@ -86,7 +86,7 @@ export function invoiceDetailHtml(doc, { kind = "sale" } = {}) {
         <td>${it.qty}</td>
         <td>${escapeHtml(it.unit || "pcs")}</td>
         <td>${money(it.rate)}</td>
-        <td>${money(numSafe(it.cost) || lastPurchaseRate(store.db, it.productId, doc.date))}</td>
+        <td>${money(numSafe(it.cost) || lastPurchaseRate(store.db, it.productId, doc.date) || avgCostNow(store.db, it.productId))}</td>
         <td>${money(it.lineTotal ?? numSafe(it.qty) * numSafe(it.rate))}</td>
         <td>${retq ? retq : "—"}</td>
       </tr><tr class="item-rule"><td colspan="9"></td></tr>`;
