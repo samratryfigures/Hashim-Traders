@@ -53,7 +53,7 @@ export function allStocks(db, exclude) {
 }
 
 export function stockValue(db) {
-  const costs = costState(db);
+  const fifo = fifoState(db);
   let value = 0;
   let items = 0;
   for (const p of db.products || []) {
@@ -63,9 +63,8 @@ export function stockValue(db) {
     if (s < -0.0001) {
       value += s * lastPurchaseRate(db, p.id);
     } else {
-      const st = costs.stock.get(String(p.id));
-      if (st) value += num(st.value);
-      else value += s * lastPurchaseRate(db, p.id);
+      const lots = fifo.lots.get(String(p.id)) || [];
+      for (const lot of lots) value += num(lot.qty) * num(lot.cost);
     }
   }
   return { items: round2(items), value: round2(value) };
@@ -441,41 +440,32 @@ export function openingUnitCost(db, p) {
   return num(p.purchasePrice);
 }
 
-function stockOf(map, pid) {
-  const key = String(pid);
-  if (!map.has(key)) map.set(key, { qty: 0, value: 0 });
-  return map.get(key);
-}
-
-function currentAvg(st, fallbackCost) {
-  return num(st.qty) > 1e-9 ? num(st.value) / num(st.qty) : num(fallbackCost);
-}
-
-function addStock(st, qty, unitCost) {
-  const q = num(qty);
-  if (q <= 0) return;
-  st.qty = num(st.qty) + q;
-  st.value = num(st.value) + q * num(unitCost);
-}
-
-function takeAvg(st, qty, fallbackCost) {
-  const take = num(qty);
-  if (take <= 0) return 0;
-  const avg = currentAvg(st, fallbackCost);
-  const cogs = take * avg;
-  st.qty = num(st.qty) - take;
-  st.value = num(st.value) - cogs;
-  if (Math.abs(num(st.qty)) <= 1e-9) {
-    st.qty = 0;
-    st.value = 0;
+export function consumeLots(lots, qty, fallbackCost) {
+  let remain = num(qty);
+  let cogs = 0;
+  while (remain > 1e-9 && lots.length) {
+    const lot = lots[0];
+    const take = Math.min(num(lot.qty), remain);
+    cogs += take * num(lot.cost);
+    lot.qty = num(lot.qty) - take;
+    remain -= take;
+    if (num(lot.qty) <= 1e-9) lots.shift();
   }
+  if (remain > 1e-9) cogs += remain * num(fallbackCost);
   return round2(cogs);
 }
 
-function replayAvg(db) {
-  const stock = new Map();
+function lotsFor(map, pid) {
+  const key = String(pid);
+  if (!map.has(key)) map.set(key, []);
+  return map.get(key);
+}
+
+function replayFifo(db) {
+  const lots = new Map();
   const invoiceCogsMap = new Map();
   const returnCogsMap = new Map();
+  const saleUnitCost = new Map();
   const fallback = new Map();
 
   for (const p of db.products || []) {
@@ -483,8 +473,8 @@ function replayAvg(db) {
     const unit = openingUnitCost(db, p);
     fallback.set(pid, unit || num(p.purchasePrice));
     const openQty = num(p.openingStock);
-    if (openQty > 1e-9) stock.set(pid, { qty: openQty, value: openQty * unit });
-    else stock.set(pid, { qty: 0, value: 0 });
+    if (openQty > 1e-9) lots.set(pid, [{ qty: openQty, cost: unit }]);
+    else lots.set(pid, []);
   }
 
   const events = [];
@@ -535,7 +525,8 @@ function replayAvg(db) {
         if (!pid) continue;
         const qty = num(it.qty);
         if (qty <= 0) continue;
-        addStock(stockOf(stock, pid), qty, movementRate(it));
+        const cost = movementRate(it);
+        lotsFor(lots, pid).push({ qty, cost });
       }
       continue;
     }
@@ -547,7 +538,12 @@ function replayAvg(db) {
         const qty = num(it.qty);
         if (qty <= 0) continue;
         const fb = fallback.get(pid) ?? lastPurchaseRate(db, pid, ev.inv.date);
-        cogs += takeAvg(stockOf(stock, pid), qty, fb);
+        const line = consumeLots(lotsFor(lots, pid), qty, fb);
+        cogs += line;
+        const prev = saleUnitCost.get(ev.inv.id + ":" + pid) || { qty: 0, cogs: 0 };
+        prev.qty += qty;
+        prev.cogs += line;
+        saleUnitCost.set(ev.inv.id + ":" + pid, prev);
       }
       invoiceCogsMap.set(ev.inv.id, round2(cogs));
       continue;
@@ -559,7 +555,7 @@ function replayAvg(db) {
         const qty = num(it.qty);
         if (qty <= 0) continue;
         const fb = fallback.get(pid) ?? lastPurchaseRate(db, pid, ev.ret.date);
-        takeAvg(stockOf(stock, pid), qty, fb);
+        consumeLots(lotsFor(lots, pid), qty, fb);
       }
       continue;
     }
@@ -569,45 +565,35 @@ function replayAvg(db) {
       if (!pid) continue;
       const qty = num(it.qty);
       if (qty <= 0) continue;
-      const st = stockOf(stock, pid);
+      const src = saleUnitCost.get(String(ev.ret.sourceId || "") + ":" + pid);
       const fb = fallback.get(pid) ?? lastPurchaseRate(db, pid, ev.ret.date);
-      const unit = num(it.cost) || currentAvg(st, fb);
-      addStock(st, qty, unit);
+      const unit = src && src.qty ? src.cogs / src.qty : num(it.cost) || fb;
+      lotsFor(lots, pid).unshift({ qty, cost: unit });
       cogs += qty * unit;
     }
     returnCogsMap.set(ev.ret.id, round2(cogs));
   }
 
-  return { stock, invoiceCogs: invoiceCogsMap, returnCogs: returnCogsMap };
+  return { lots, invoiceCogs: invoiceCogsMap, returnCogs: returnCogsMap };
 }
 
-const avgCache = new WeakMap();
+const fifoCache = new WeakMap();
 
-export function costState(db) {
-  let state = avgCache.get(db);
+export function fifoState(db) {
+  let state = fifoCache.get(db);
   if (state) return state;
-  state = replayAvg(db);
-  avgCache.set(db, state);
+  state = replayFifo(db);
+  fifoCache.set(db, state);
   return state;
 }
 
-export function avgCostNow(db, productId) {
-  const st = costState(db).stock.get(String(productId || ""));
-  if (st && num(st.qty) > 1e-9) return num(st.value) / num(st.qty);
-  return lastPurchaseRate(db, productId);
-}
-
-export function saleInvoiceCogs(db, invoiceId) {
-  return costState(db).invoiceCogs.get(invoiceId) || 0;
-}
-
 function invoiceCogs(db, inv) {
-  return saleInvoiceCogs(db, inv.id);
+  return fifoState(db).invoiceCogs.get(inv.id) || 0;
 }
 
 function returnCogs(db, ret) {
   if (ret.type !== "sale") return 0;
-  return costState(db).returnCogs.get(ret.id) || 0;
+  return fifoState(db).returnCogs.get(ret.id) || 0;
 }
 
 export function dashboardStats(db, range) {

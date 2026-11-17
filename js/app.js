@@ -1,4 +1,4 @@
-import { localToday, rangeForPreset, daysInRange, money, escapeHtml, downloadJson, WALK_IN, round2 } from "./utils.js";
+import { localToday, rangeForPreset, daysInRange, money, escapeHtml, downloadJson, WALK_IN } from "./utils.js";
 import { store, subscribe, loadLocal, setSyncHandler, payloadInfo, importBackup, setDb, commit } from "./store.js";
 import {
   dashboardStats,
@@ -15,7 +15,6 @@ import {
   paidAmount,
   dueAmount,
   wouldGoNegative,
-  saleInvoiceCogs,
 } from "./compute.js";
 import { toast, bindTable, badge, confirmDialog, openModal, isEditingField } from "./ui.js";
 import {
@@ -102,7 +101,6 @@ function renderDashboard() {
     ["Sales", money(s.sales)],
     ["Sales Returns", money(s.salesReturns)],
     ["Purchases", money(s.purchases)],
-    ["Cost of sales", money(s.cogs)],
     ["Expenses", money(s.expenses)],
     ["Gross Profit", money(s.gross)],
     ["Net Profit", money(s.net)],
@@ -114,11 +112,6 @@ function renderDashboard() {
     ["Total Payable", money(s.payable)],
   ];
   $("dash-cards").innerHTML = cards.map(([l, v]) => `<div class="card"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
-  const note = $("dash-cogs-note");
-  if (note) {
-    note.textContent =
-      "Gross is Sales minus Cost of sales (average purchase rate of stock sold), not Sales minus Purchases; extra buying stays in Stock value.";
-  }
   drawCharts();
 }
 
@@ -208,7 +201,6 @@ function invoiceRows() {
     const items = inv.items || [];
     const itemList = items.map((it) => `${it.name} × ${it.qty} ${it.unit || ""}`.trim()).join(", ");
     const qty = items.reduce((a, it) => a + Number(it.qty || 0), 0);
-    const cogs = saleInvoiceCogs(store.db, inv.id);
     return {
       ...inv,
       customer: partyName(store.db, "customer", inv.customerId),
@@ -218,8 +210,6 @@ function invoiceRows() {
       method: inv.payment?.method || "",
       itemsText: itemList,
       qty,
-      cogs,
-      profit: round2(Number(inv.total || 0) - cogs),
       _clickable: true,
     };
   });
@@ -306,7 +296,6 @@ function renderInvoices() {
       { key: "total", label: "Total", render: (r) => money(r.total) },
       { key: "paid", label: "Paid", render: (r) => money(r.paid) },
       { key: "due", label: "Due", render: (r) => money(r.due) },
-      { key: "profit", label: "Profit", render: (r) => money(r.profit) },
       { key: "method", label: "Pay" },
       { key: "status", label: "Status", render: (r) => badge(r.status) },
     ],
@@ -487,7 +476,6 @@ function renderReports() {
   $("report-cards").innerHTML = [
     ["Sales", money(s.sales)],
     ["Purchases", money(s.purchases)],
-    ["Cost of sales", money(s.cogs)],
     ["Expenses", money(s.expenses)],
     ["Gross Profit", money(s.gross)],
     ["Net Profit", money(s.net)],
