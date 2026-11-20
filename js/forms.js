@@ -10,7 +10,7 @@ import {
   totalsFromItems,
   partyName,
   filledInvoiceItems,
-  lastPurchaseRate,
+  avgCostNow,
 } from "./compute.js";
 import { store, commit, applyUndo } from "./store.js";
 import { toast, confirmDialog, openModal } from "./ui.js";
@@ -270,7 +270,7 @@ function bindForm(wrap, state, isSale, close, printAfter) {
     state.items[i].productId = p.id;
     state.items[i].name = p.name;
     state.items[i].category = p.category || "";
-    state.items[i].cost = isSale ? lastPurchaseRate(store.db, p.id, state.date) : num(p.purchasePrice);
+    state.items[i].cost = isSale ? avgCostNow(store.db, p.id) : num(p.purchasePrice);
     state.items[i].rate = isSale ? num(p.salePrice) : num(p.purchasePrice);
     state.items[i].unit = unitLabel(p.unit);
   }
@@ -493,7 +493,7 @@ function bindForm(wrap, state, isSale, close, printAfter) {
         qty: num(it.qty),
         unit: unitLabel(it.unit),
         rate: num(it.rate),
-        cost: isSale ? lastPurchaseRate(store.db, it.productId, state.date) : num(it.cost),
+        cost: isSale ? avgCostNow(store.db, it.productId) : num(it.cost),
         lineTotal: round2(num(it.qty) * num(it.rate)),
       })),
       discount: t.discount,

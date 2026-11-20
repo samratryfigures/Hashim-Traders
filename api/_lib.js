@@ -281,7 +281,7 @@ async function writeGithubDb(db, attempt = 0) {
   return { ok: true, db: outgoing };
 }
 
-const SHOP_MARKER = "HASHMI_BUILD pos20";
+const SHOP_MARKER = "HASHMI_BUILD pos23";
 let shopPublish = { checked: 0, ok: false };
 
 const SHOP_STATIC = [
@@ -299,19 +299,18 @@ const SHOP_STATIC = [
   "js/migrate.js",
 ];
 
-function shopOrigin() {
-  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
-  if (host) return "https://" + String(host).replace(/^https?:\/\//, "");
-  return "https://hashmi-traders-lyart.vercel.app";
+function parseShopPos(text) {
+  const m = String(text || "").match(/HASHMI_BUILD\s+pos(\d+)/i);
+  return m ? Number(m[1]) : 0;
 }
 
-async function collectShopFiles() {
+function collectShopFiles() {
   const files = [];
-  const origin = shopOrigin();
+  const root = path.join(__dirname, "..");
   for (const rel of SHOP_STATIC) {
-    const res = await fetch(origin + "/" + rel + "?v=pos20", { cache: "no-store" });
-    if (!res.ok) continue;
-    files.push({ path: rel, content: await res.text() });
+    const full = path.join(root, rel);
+    if (!fs.existsSync(full) || !fs.statSync(full).isFile()) continue;
+    files.push({ path: rel, content: fs.readFileSync(full, "utf8") });
   }
   const apiDir = __dirname;
   for (const name of fs.readdirSync(apiDir)) {
@@ -319,7 +318,7 @@ async function collectShopFiles() {
     if (!fs.statSync(full).isFile()) continue;
     files.push({ path: "api/" + name, content: fs.readFileSync(full, "utf8") });
   }
-  const vercelJson = path.join(apiDir, "..", "vercel.json");
+  const vercelJson = path.join(root, "vercel.json");
   if (fs.existsSync(vercelJson)) {
     files.push({ path: "vercel.json", content: fs.readFileSync(vercelJson, "utf8") });
   }
@@ -331,12 +330,14 @@ async function publishShopIfStale() {
   if (shopPublish.ok && Date.now() - shopPublish.checked < 10 * 60 * 1000) return;
   shopPublish.checked = Date.now();
   try {
+    const localPos = parseShopPos(SHOP_MARKER);
     const headers = await githubHeaders();
     const indexRes = await fetch(`https://api.github.com/repos/${githubRepo()}/contents/index.html?ref=main`, { headers });
     if (indexRes.ok) {
       const meta = await indexRes.json();
       const html = Buffer.from(String(meta.content || "").replace(/\n/g, ""), "base64").toString("utf8");
-      if (html.includes(SHOP_MARKER)) {
+      const githubPos = parseShopPos(html);
+      if (githubPos >= localPos) {
         shopPublish.ok = true;
         return;
       }
@@ -345,8 +346,8 @@ async function publishShopIfStale() {
     if (!ref.res.ok) return;
     const commit = await githubApi(`/git/commits/${ref.data.object.sha}`);
     if (!commit.res.ok) return;
-    const files = await collectShopFiles();
-    if (!files.some((f) => f.path === "index.html" && f.content.includes(SHOP_MARKER))) return;
+    const files = collectShopFiles();
+    if (!files.some((f) => f.path === "index.html" && parseShopPos(f.content) >= localPos)) return;
     const treeRes = await githubApi("/git/trees", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -363,7 +364,7 @@ async function publishShopIfStale() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: "HASHMI TRADERS shop v18",
+        message: "HASHMI TRADERS shop v23",
         tree: treeRes.data.sha,
         parents: [ref.data.object.sha],
       }),
