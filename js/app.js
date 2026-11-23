@@ -117,7 +117,7 @@ function renderDashboard() {
   const note = $("dash-cogs-note");
   if (note) {
     note.textContent =
-      "Gross is Sales minus Cost of sales (average purchase rate of stock sold), not Sales minus Purchases; extra buying stays in Stock value.";
+      "Cost of sales is the purchase rate written on the product/last purchase bill. It is not expenses and not a mixed average of old stock.";
   }
   drawCharts();
 }

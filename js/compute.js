@@ -53,20 +53,13 @@ export function allStocks(db, exclude) {
 }
 
 export function stockValue(db) {
-  const costs = costState(db);
   let value = 0;
   let items = 0;
   for (const p of db.products || []) {
     if (p.archived) continue;
     const s = productStock(db, p.id);
     items += s;
-    if (s < -0.0001) {
-      value += s * lastPurchaseRate(db, p.id);
-    } else {
-      const st = costs.stock.get(String(p.id));
-      if (st) value += num(st.value);
-      else value += s * lastPurchaseRate(db, p.id);
-    }
+    value += s * lastPurchaseRate(db, p.id);
   }
   return { items: round2(items), value: round2(value) };
 }
@@ -386,228 +379,34 @@ export function lastPurchaseRate(db, productId, onOrBefore) {
   return num(p?.purchasePrice);
 }
 
-function movementRate(it) {
-  return num(it.rate) || num(it.cost);
+export function avgCostNow(db, productId, onOrBefore) {
+  return lastPurchaseRate(db, productId, onOrBefore);
 }
 
-function earlierCand(a, b) {
-  if (!a) return true;
-  if (b.date < a.date) return true;
-  if (b.date !== a.date) return false;
-  if (b.no < a.no) return true;
-  if (b.no !== a.no) return false;
-  if (b.pi < a.pi) return true;
-  return b.pi === a.pi && b.ii < a.ii;
-}
-
-export function openingUnitCost(db, p) {
-  if (!p) return 0;
-  const explicit = num(p.openingCost);
-  if (explicit) return explicit;
-  const pid = String(p.id);
-
-  let firstPurchase = null;
-  const purchases = db.purchases || [];
-  for (let pi = 0; pi < purchases.length; pi++) {
-    const pur = purchases[pi];
-    const d = String(pur.date || "").slice(0, 10);
-    const items = pur.items || [];
-    for (let ii = 0; ii < items.length; ii++) {
-      const it = items[ii];
-      if (String(it.productId) !== pid) continue;
-      const cand = { date: d, no: String(pur.no || ""), pi, ii, rate: movementRate(it) };
-      if (earlierCand(firstPurchase, cand)) firstPurchase = cand;
-    }
-  }
-
-  let firstSale = null;
-  const invoices = db.invoices || [];
-  for (let si = 0; si < invoices.length; si++) {
-    const inv = invoices[si];
-    const d = String(inv.date || "").slice(0, 10);
-    const items = inv.items || [];
-    for (let ii = 0; ii < items.length; ii++) {
-      const it = items[ii];
-      if (String(it.productId) !== pid) continue;
-      const cost = num(it.cost);
-      if (!cost) continue;
-      const cand = { date: d, no: String(inv.no || ""), pi: si, ii, rate: cost };
-      if (earlierCand(firstSale, cand)) firstSale = cand;
-    }
-  }
-
-  if (firstSale && (!firstPurchase || firstSale.date < firstPurchase.date)) return num(firstSale.rate);
-  if (firstPurchase) return num(firstPurchase.rate);
-  return num(p.purchasePrice);
-}
-
-function stockOf(map, pid) {
-  const key = String(pid);
-  if (!map.has(key)) map.set(key, { qty: 0, value: 0 });
-  return map.get(key);
-}
-
-function currentAvg(st, fallbackCost) {
-  return num(st.qty) > 1e-9 ? num(st.value) / num(st.qty) : num(fallbackCost);
-}
-
-function addStock(st, qty, unitCost) {
-  const q = num(qty);
-  if (q <= 0) return;
-  st.qty = num(st.qty) + q;
-  st.value = num(st.value) + q * num(unitCost);
-}
-
-function takeAvg(st, qty, fallbackCost) {
-  const take = num(qty);
-  if (take <= 0) return 0;
-  const avg = currentAvg(st, fallbackCost);
-  const cogs = take * avg;
-  st.qty = num(st.qty) - take;
-  st.value = num(st.value) - cogs;
-  if (Math.abs(num(st.qty)) <= 1e-9) {
-    st.qty = 0;
-    st.value = 0;
+function lineLastRateCogs(db, items, onOrBefore) {
+  let cogs = 0;
+  for (const it of items || []) {
+    const qty = num(it.qty);
+    if (qty <= 0) continue;
+    cogs += qty * lastPurchaseRate(db, it.productId, onOrBefore);
   }
   return round2(cogs);
 }
 
-function replayAvg(db) {
-  const stock = new Map();
-  const invoiceCogsMap = new Map();
-  const returnCogsMap = new Map();
-  const fallback = new Map();
-
-  for (const p of db.products || []) {
-    const pid = String(p.id);
-    const unit = openingUnitCost(db, p);
-    fallback.set(pid, unit || num(p.purchasePrice));
-    const openQty = num(p.openingStock);
-    if (openQty > 1e-9) stock.set(pid, { qty: openQty, value: openQty * unit });
-    else stock.set(pid, { qty: 0, value: 0 });
-  }
-
-  const events = [];
-  const purchases = db.purchases || [];
-  for (let pi = 0; pi < purchases.length; pi++) {
-    const pur = purchases[pi];
-    events.push({
-      date: String(pur.date || "").slice(0, 10),
-      kind: 0,
-      no: String(pur.no || ""),
-      idx: pi,
-      pur,
-    });
-  }
-  const invoices = db.invoices || [];
-  for (let si = 0; si < invoices.length; si++) {
-    const inv = invoices[si];
-    events.push({
-      date: String(inv.date || "").slice(0, 10),
-      kind: 1,
-      no: String(inv.no || ""),
-      idx: si,
-      inv,
-    });
-  }
-  const rets = db.returns || [];
-  for (let ri = 0; ri < rets.length; ri++) {
-    const ret = rets[ri];
-    events.push({
-      date: String(ret.date || "").slice(0, 10),
-      kind: ret.type === "purchase" ? 2 : 3,
-      no: String(ret.no || ""),
-      idx: ri,
-      ret,
-    });
-  }
-  events.sort((a, b) => {
-    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
-    if (a.kind !== b.kind) return a.kind - b.kind;
-    if (a.no !== b.no) return a.no < b.no ? -1 : 1;
-    return a.idx - b.idx;
-  });
-
-  for (const ev of events) {
-    if (ev.kind === 0) {
-      for (const it of ev.pur.items || []) {
-        const pid = String(it.productId || "");
-        if (!pid) continue;
-        const qty = num(it.qty);
-        if (qty <= 0) continue;
-        addStock(stockOf(stock, pid), qty, movementRate(it));
-      }
-      continue;
-    }
-    if (ev.kind === 1) {
-      let cogs = 0;
-      for (const it of ev.inv.items || []) {
-        const pid = String(it.productId || "");
-        if (!pid) continue;
-        const qty = num(it.qty);
-        if (qty <= 0) continue;
-        const fb = fallback.get(pid) ?? lastPurchaseRate(db, pid, ev.inv.date);
-        cogs += takeAvg(stockOf(stock, pid), qty, fb);
-      }
-      invoiceCogsMap.set(ev.inv.id, round2(cogs));
-      continue;
-    }
-    if (ev.kind === 2) {
-      for (const it of ev.ret.items || []) {
-        const pid = String(it.productId || "");
-        if (!pid) continue;
-        const qty = num(it.qty);
-        if (qty <= 0) continue;
-        const fb = fallback.get(pid) ?? lastPurchaseRate(db, pid, ev.ret.date);
-        takeAvg(stockOf(stock, pid), qty, fb);
-      }
-      continue;
-    }
-    let cogs = 0;
-    for (const it of ev.ret.items || []) {
-      const pid = String(it.productId || "");
-      if (!pid) continue;
-      const qty = num(it.qty);
-      if (qty <= 0) continue;
-      const st = stockOf(stock, pid);
-      const fb = fallback.get(pid) ?? lastPurchaseRate(db, pid, ev.ret.date);
-      const unit = num(it.cost) || currentAvg(st, fb);
-      addStock(st, qty, unit);
-      cogs += qty * unit;
-    }
-    returnCogsMap.set(ev.ret.id, round2(cogs));
-  }
-
-  return { stock, invoiceCogs: invoiceCogsMap, returnCogs: returnCogsMap };
-}
-
-const avgCache = new WeakMap();
-
-export function costState(db) {
-  let state = avgCache.get(db);
-  if (state) return state;
-  state = replayAvg(db);
-  avgCache.set(db, state);
-  return state;
-}
-
-export function avgCostNow(db, productId) {
-  const st = costState(db).stock.get(String(productId || ""));
-  if (st && num(st.qty) > 1e-9) return num(st.value) / num(st.qty);
-  return lastPurchaseRate(db, productId);
-}
-
 export function saleInvoiceCogs(db, invoiceId) {
-  return costState(db).invoiceCogs.get(invoiceId) || 0;
+  const inv = (db.invoices || []).find((x) => x.id === invoiceId);
+  if (!inv) return 0;
+  return invoiceCogs(db, inv);
 }
 
 function invoiceCogs(db, inv) {
-  return saleInvoiceCogs(db, inv.id);
+  return lineLastRateCogs(db, inv.items, inv.date);
 }
 
 function returnCogs(db, ret) {
   if (ret.type !== "sale") return 0;
-  return costState(db).returnCogs.get(ret.id) || 0;
+  const src = (db.invoices || []).find((x) => x.id === ret.sourceId);
+  return lineLastRateCogs(db, ret.items, src?.date || ret.date);
 }
 
 export function dashboardStats(db, range) {

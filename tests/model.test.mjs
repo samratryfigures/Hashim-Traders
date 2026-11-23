@@ -272,7 +272,7 @@ describe("purchases and supplier khata", () => {
   });
 });
 
-describe("moving-average cost for profit", () => {
+describe("last-purchase-rate cost for profit", () => {
   function emptyStockDb() {
     const db = freshDb();
     db.products[0].openingStock = 0;
@@ -305,21 +305,34 @@ describe("moving-average cost for profit", () => {
     });
   }
 
-  it("buy 10@10 then 10@14, sell 2 uses blended average", () => {
+  it("buy 10@10 then 10@14, sell 2 uses last purchase 14 not mixed average", () => {
     const db = emptyStockDb();
     buy(db, "pu1", "PUR-0001", "2026-09-01", "a", 10, 10);
     buy(db, "pu2", "PUR-0002", "2026-09-10", "a", 10, 14);
     sell(db, "inv1", "INV-0001", "2026-09-15", "a", 2, 20);
     assert.equal(lastPurchaseRate(db, "a", "2026-09-15"), 14);
-    assert.equal(round2(avgCostNow(db, "a")), 12);
+    assert.equal(round2(avgCostNow(db, "a")), 14);
     const stats = dashboardStats(db, { from: "2026-09-01", to: "2026-09-30" });
     assert.equal(stats.sales, 40);
-    assert.equal(stats.cogs, 24);
-    assert.equal(stats.gross, 16);
-    assert.equal(saleInvoiceCogs(db, "inv1"), 24);
+    assert.equal(stats.cogs, 28);
+    assert.equal(stats.gross, 12);
+    assert.equal(saleInvoiceCogs(db, "inv1"), 28);
   });
 
-  it("cheaper restock blends remaining stock instead of leaving the old lot", () => {
+  it("buy 5@1050, sell 1@1100 uses 1050 not a blended higher cost", () => {
+    const db = emptyStockDb();
+    db.products[0].purchasePrice = 1050;
+    buy(db, "pu1", "PUR-0001", "2026-09-01", "a", 5, 1050);
+    sell(db, "inv1", "INV-0001", "2026-09-02", "a", 1, 1100);
+    assert.equal(lastPurchaseRate(db, "a", "2026-09-02"), 1050);
+    assert.equal(saleInvoiceCogs(db, "inv1"), 1050);
+    const stats = dashboardStats(db, { from: "2026-09-01", to: "2026-09-30" });
+    assert.equal(stats.sales, 1100);
+    assert.equal(stats.cogs, 1050);
+    assert.equal(stats.gross, 50);
+  });
+
+  it("later cheaper purchase does not rewrite earlier sale cost", () => {
     const db = emptyStockDb();
     buy(db, "pu1", "PUR-0001", "2026-09-01", "a", 20, 10);
     sell(db, "inv1", "INV-0001", "2026-09-10", "a", 1, 20);
@@ -328,9 +341,9 @@ describe("moving-average cost for profit", () => {
     assert.equal(lastPurchaseRate(db, "a", "2026-09-21"), 7);
     const stats = dashboardStats(db, { from: "2026-09-01", to: "2026-09-30" });
     assert.equal(stats.sales, 40);
-    assert.equal(stats.cogs, 18.46);
-    assert.equal(stats.gross, 21.54);
+    assert.equal(stats.cogs, 17);
+    assert.equal(stats.gross, 23);
     assert.equal(saleInvoiceCogs(db, "inv1"), 10);
-    assert.equal(saleInvoiceCogs(db, "inv2"), 8.46);
+    assert.equal(saleInvoiceCogs(db, "inv2"), 7);
   });
 });
