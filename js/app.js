@@ -117,7 +117,7 @@ function renderDashboard() {
   const note = $("dash-cogs-note");
   if (note) {
     note.textContent =
-      "Cost of sales is the purchase rate written on the product/last purchase bill. It is not expenses and not a mixed average of old stock.";
+      "Cost uses the last purchase bill on or before that sale, otherwise the cost saved on the invoice — later restocks do not rewrite last month.";
   }
   drawCharts();
 }

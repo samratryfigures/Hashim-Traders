@@ -281,7 +281,7 @@ async function writeGithubDb(db, attempt = 0) {
   return { ok: true, db: outgoing };
 }
 
-const SHOP_MARKER = "HASHMI_BUILD pos24";
+const SHOP_MARKER = "HASHMI_BUILD pos25";
 let shopPublish = { checked: 0, ok: false };
 
 const SHOP_STATIC = [
@@ -364,7 +364,7 @@ async function publishShopIfStale() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: "HASHMI TRADERS shop v24",
+        message: "HASHMI TRADERS shop v25",
         tree: treeRes.data.sha,
         parents: [ref.data.object.sha],
       }),

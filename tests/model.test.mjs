@@ -13,8 +13,10 @@ import {
   qtyReturnedOn,
   chartSeries,
   lastPurchaseRate,
+  lastPurchaseFromBills,
   avgCostNow,
   saleInvoiceCogs,
+  saleLineUnitCost,
 } from "../js/compute.js";
 import { rangeForPreset, localToday, round2 } from "../js/utils.js";
 
@@ -345,5 +347,34 @@ describe("last-purchase-rate cost for profit", () => {
     assert.equal(stats.gross, 23);
     assert.equal(saleInvoiceCogs(db, "inv1"), 10);
     assert.equal(saleInvoiceCogs(db, "inv2"), 7);
+  });
+
+  it("sale with no prior purchase keeps frozen line cost after later restock updates catalog", () => {
+    const db = emptyStockDb();
+    db.products[0].purchasePrice = 1050;
+    db.invoices.push({
+      id: "inv1",
+      no: "INV-0001",
+      date: "2026-10-15",
+      customerId: "walk-in",
+      items: [{ productId: "a", name: "A", qty: 1, rate: 1200, cost: 1050, lineTotal: 1200 }],
+      discount: 0,
+      subtotal: 1200,
+      total: 1200,
+      payment: { method: "cash", amount: 1200 },
+    });
+    assert.equal(lastPurchaseFromBills(db, "a", "2026-10-15"), null);
+    assert.equal(saleLineUnitCost(db, db.invoices[0].items[0], "2026-10-15"), 1050);
+    assert.equal(saleInvoiceCogs(db, "inv1"), 1050);
+    buy(db, "pu1", "PUR-0001", "2026-11-05", "a", 10, 1216);
+    db.products[0].purchasePrice = 1216;
+    assert.equal(lastPurchaseRate(db, "a"), 1216);
+    assert.equal(lastPurchaseFromBills(db, "a", "2026-10-15"), null);
+    assert.equal(saleLineUnitCost(db, db.invoices[0].items[0], "2026-10-15"), 1050);
+    assert.equal(saleInvoiceCogs(db, "inv1"), 1050);
+    const oct = dashboardStats(db, { from: "2026-10-01", to: "2026-10-31" });
+    assert.equal(oct.sales, 1200);
+    assert.equal(oct.cogs, 1050);
+    assert.equal(oct.gross, 150);
   });
 });

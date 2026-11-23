@@ -348,7 +348,8 @@ export function ledgerSummary(db, partyType, partyId) {
   return { billed: round2(billed), paid: round2(paid), returned: round2(returned), remaining: round2(remaining) };
 }
 
-export function lastPurchaseRate(db, productId, onOrBefore) {
+/** Last purchase-bill rate on or before cutoff. Null when no such bill (does not use catalog). */
+export function lastPurchaseFromBills(db, productId, onOrBefore) {
   const pid = String(productId || "");
   const cutoff = onOrBefore ? String(onOrBefore).slice(0, 10) : "";
   let best = null;
@@ -374,7 +375,14 @@ export function lastPurchaseRate(db, productId, onOrBefore) {
       }
     }
   }
-  if (best) return num(best.rate);
+  return best ? num(best.rate) : null;
+}
+
+/** POS/forms: last purchase bill, else current catalog purchasePrice. */
+export function lastPurchaseRate(db, productId, onOrBefore) {
+  const fromBills = lastPurchaseFromBills(db, productId, onOrBefore);
+  if (fromBills != null) return fromBills;
+  const pid = String(productId || "");
   const p = (db.products || []).find((x) => String(x.id) === pid);
   return num(p?.purchasePrice);
 }
@@ -383,12 +391,22 @@ export function avgCostNow(db, productId, onOrBefore) {
   return lastPurchaseRate(db, productId, onOrBefore);
 }
 
+/** Purchase-before-date, else frozen invoice line cost, else catalog. */
+export function saleLineUnitCost(db, it, onOrBefore) {
+  const fromBills = lastPurchaseFromBills(db, it?.productId, onOrBefore);
+  if (fromBills != null) return num(fromBills);
+  if (num(it?.cost) > 0) return num(it.cost);
+  const pid = String(it?.productId || "");
+  const p = (db.products || []).find((x) => String(x.id) === pid);
+  return num(p?.purchasePrice);
+}
+
 function lineLastRateCogs(db, items, onOrBefore) {
   let cogs = 0;
   for (const it of items || []) {
     const qty = num(it.qty);
     if (qty <= 0) continue;
-    cogs += qty * lastPurchaseRate(db, it.productId, onOrBefore);
+    cogs += qty * saleLineUnitCost(db, it, onOrBefore);
   }
   return round2(cogs);
 }
